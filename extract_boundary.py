@@ -1,45 +1,18 @@
-#%%capture
-!pip install simplification==0.7.12
-!pip install numpy==1.26.4
-
-%%capture
-import os
 from PIL import Image,ImageEnhance
-import pandas as pd
-
-import io
-from io import BytesIO
-import tarfile
 import numpy as np
-
 from skimage import measure
 import skimage.morphology as morphology
 from simplification.cutil import simplify_coords
-from scipy.spatial import distance
 
 
+def get_shoreline(mask_img_path, simplification=1, smoothing=3):
+  img_in = Image.open(mask_img_path)
 
+  i_arr = np.array(img_in)
+  i_arr = i_arr[:,:,0]
+  i_arr = i_arr.squeeze()
+  mask_array = i_arr.squeeze()
 
-shoreline, buffer = get_shoreline(mask_img)
-
-#flip shoreline axis
-flipped_shoreline = np.array([shoreline[:,1],shoreline[:,0]]).T
-shoreline_filename = f"{name}_sl.csv"
-np.savetxt(contour_folder + "/" + shoreline_filename, flipped_shoreline, delimiter=",", fmt="%f")
-
-
-
-
-def get_shoreline(mask_img):
-
-  if isinstance(mask_img, str):
-    img_in = Image.open(mask_img)
-    mask_array = np.array(img_in)
-  else:
-    i_arr = np.array(mask_img)
-    i_arr = i_arr[:,:,0]
-    i_arr = i_arr.squeeze()
-    mask_array = i_arr.squeeze()
 
   #get the min of the img_in dimensions
   min_dim = min(mask_array.shape)
@@ -62,17 +35,27 @@ def get_shoreline(mask_img):
   im_ref_boolean = morphology.binary_dilation(shoreline_mask, se)
   #convert im_ref_boolean from boolean values to integer values
   im_ref_buffer_out = im_ref_boolean.astype(np.uint8)
-  # # convert to visible image
-  #im_ref_img = Image.fromarray(im_ref_buffer.astype(np.uint8)*255)
 
   # Simplify the shoreline points using the Visvalingam-Whyatt algorithm
-  simplified_shoreline = simplify_coords(shoreline_points, 1)  # Adjust 0.01 as needed for desired simplification level
+  simplified_shoreline = simplify_coords(shoreline_points, simplification)  # Adjust as needed for desired simplification level
 
   # Smooth the simplified shoreline using a moving average filter
-  window_size = 3  # Adjust as needed for desired smoothing level
+  window_size = smoothing  # Adjust as needed for desired smoothing level
   smoothed_shoreline = np.convolve(simplified_shoreline[:, 0], np.ones(window_size)/window_size, mode='same')
   smoothed_shoreline = np.stack((smoothed_shoreline, np.convolve(simplified_shoreline[:, 1], np.ones(window_size)/window_size, mode='same')), axis=-1)
 
+  # Remove the first and last points from the smoothed shoreline -- for some reason these are at the centroid of the image
   smoothed_shoreline = smoothed_shoreline[1:-1,:]
+
+  # Append the first point to the end of the smoothed shoreline to close the loop
+  smoothed_shoreline = np.vstack((smoothed_shoreline,smoothed_shoreline[0,:]))
+  
+  #switch the x and y coordinates
+  smoothed_shoreline = np.array([smoothed_shoreline[:,1],smoothed_shoreline[:,0]]).T
+
+  #save the shoreline to a csv file
+  shoreline_filepath = mask_img_path.replace('.png','_sl.csv')
+  np.savetxt(shoreline_filepath, smoothed_shoreline, delimiter=",", fmt="%f")
+  
   #append the first point to the end of smooth shoreline
-  return np.vstack((smoothed_shoreline,smoothed_shoreline[0,:])),im_ref_buffer_out
+  return smoothed_shoreline,im_ref_buffer_out,shoreline_filepath
