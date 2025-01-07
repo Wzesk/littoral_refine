@@ -31,6 +31,7 @@ import numpy as np
 from PIL import Image
 
 
+
 class boundary_refine:
   def __init__(self,shoreline_path,img_path,delta=0.005):
     #load the image
@@ -96,7 +97,6 @@ class boundary_refine:
     self.refined_boundary = self.threshold_samples(sampled)
 
     return self.refined_boundary
-
 
   def fit_nurbs(self,degree=3,size=24,periodic=True):
     #if periodic, set the last point equal to the first point
@@ -207,16 +207,20 @@ class boundary_refine:
     curve_points = self.crv_pts
     count = self.sample_size
     normals = self.normals
-
+  
     for i in range(len(curve_points)):
       sample_pt = curve_points[i] + normals[i]*(-count/2)
       t_samples = []
       t_samples.append(sample_pt)
+
       for j in range((count*2)-1):
         sample_pt = sample_pt + (normals[i]/2)
         t_samples.append(sample_pt)
+
       sample_pts.append(t_samples)
+
     self.sample_pts = sample_pts
+
     return sample_pts
 
   def sample_image(self, sample_pts, scale_down=1):
@@ -227,10 +231,11 @@ class boundary_refine:
       t_samples = []
       for pt in t_pts:
         try:
-          if int(pt[0]/scale_down) < image_array.shape[0] and int(pt[1]/scale_down) < image_array.shape[1]:
-            t_samples.append([pt[0],pt[1],image_array[int(pt[0]/scale_down),int(pt[1]/scale_down)]])
+          if int(pt[0]/scale_down) < image_array.shape[1] and int(pt[1]/scale_down) < image_array.shape[0]:
+            t_samples.append([pt[0],pt[1],image_array[int(pt[1]/scale_down),int(pt[0]/scale_down)]])
           else:
-            min_pixel = np.min(image_array.reshape(image_array.shape[0]*image_array.shape[1],3),axis=0)
+            print("sample out of bounds")
+            min_pixel = np.min(image_array.reshape(image_array.shape[0]*image_array.shape[1],image_array.shape[2]),axis=0)
             t_samples.append([pt[0],pt[1],min_pixel])
         except Exception as e:
           print(str(e))
@@ -249,11 +254,17 @@ class boundary_refine:
     for s in range(len(sampled)):
       t_s = sampled[s]
       seg_array = np.zeros((len(t_s),3))
+
       for i in range(len(t_s)):
         seg_array[i][0] = float(i)
         seg_array[i][1] = np.mean(t_s[i][2])
-      seg_array[:,0] = seg_array[:,0]/np.max(seg_array[:,0])
-      seg_array[:,1] = seg_array[:,1]/np.max(seg_array[:,1])
+
+      if np.max(seg_array[:,0]) > 0:      
+        seg_array[:,0] = seg_array[:,0]/np.max(seg_array[:,0])
+
+      if np.max(seg_array[:,1]) > 0:
+        seg_array[:,1] = seg_array[:,1]/np.max(seg_array[:,1])
+        
       segmentation_transects.append(seg_array)
 
       seg_slopes[s] = self.find_highest_derivatives(seg_array)
@@ -266,6 +277,7 @@ class boundary_refine:
 ################################################################################
 #######################     static methods     #################################
 ################################################################################
+
 
   def rolling_highest_slope(self, seg_slopes, segmentation_transects,wz=3):
     boundary_pts = []
