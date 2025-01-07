@@ -483,7 +483,6 @@ class boundary_refine:
               contours_nonans.append(contours[k])
       return contours_nonans
   
-
   # # this is the dumbest solution -- get working and show if there is time
   # def simple_cubes(self, im_ms, ave, im_labels, im_ref_buffer):
   #   np.seterr(all='ignore') # raise/ignore divisions by 0 and nans
