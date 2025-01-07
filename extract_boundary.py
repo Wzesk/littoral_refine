@@ -56,6 +56,11 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3):
   #save the shoreline to a csv file
   shoreline_filepath = mask_img_path.replace('.png','_sl.csv')
   np.savetxt(shoreline_filepath, smoothed_shoreline, delimiter=",", fmt="%f")
+
+  # save the buffer
+  buff_img = Image.fromarray(im_ref_buffer_out*255)
+  buffer_path = mask_img_path.replace('mask','buffer')
+  buff_img.save(buffer_path)
   
   #append the first point to the end of smooth shoreline
   return smoothed_shoreline,im_ref_buffer_out,shoreline_filepath

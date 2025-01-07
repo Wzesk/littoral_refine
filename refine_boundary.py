@@ -1,32 +1,6 @@
-########!pip install geomdl
-
-#  from PIL import Image
-# import json
-# import numpy as np
-
-# import math
-# import matplotlib.pyplot as plt
-# import numpy as np
-# import cv2
-# import os
-# import csv
-# import numpy as np
-# from datetime import datetime, timedelta
-# import pandas as pd
-
-# from PIL import Image,ImageEnhance
-
-# import geomdl
-# from geomdl import fitting
-
-# import io
-# from io import BytesIO
-# import tarfile
-
 from sklearn.cluster import KMeans
 from skimage import measure
 import skimage.filters as filters
-#import skimage.morphology as morphology
 
 import math
 from geomdl import fitting
@@ -37,6 +11,9 @@ from PIL import Image
 
 class boundary_refine:
   def __init__(self,shoreline_path,img_path,delta=0.005):
+    self.shoreline_path = shoreline_path
+    self.refined_filepath = None
+
     #load the image
     self.img = Image.open(img_path)
 
@@ -99,7 +76,9 @@ class boundary_refine:
 
     self.refined_boundary = self.threshold_samples(sampled)
 
-    return self.refined_boundary
+    self.save_refined_shoreline()
+
+    return self.refined_filepath
 
   def fit_nurbs(self,degree=3,size=24,periodic=True):
     #if periodic, set the last point equal to the first point
@@ -356,6 +335,11 @@ class boundary_refine:
     # only return MNDWI contours and threshold
     return contours_wi, t_ave,lens
 
+  def save_refined_shoreline(self):
+    #save the refined shoreline to a csv file
+    self.refined_filepath = self.shoreline_path.replace('_sl.csv','_rl.csv')
+    np.savetxt(self.refined_filepath, self.refined_boundary, delimiter=",", fmt="%f")
+
 ################################################################################
 #######################     static methods     #################################
 ################################################################################
@@ -483,7 +467,7 @@ class boundary_refine:
               contours_nonans.append(contours[k])
       return contours_nonans
   
-  # # this is the dumbest solution -- get working and show if there is time
+  # # this is the dumb version of thresholding, perhaps helpful to show as comparison
   # def simple_cubes(self, im_ms, ave, im_labels, im_ref_buffer):
   #   np.seterr(all='ignore') # raise/ignore divisions by 0 and nans
 
@@ -507,8 +491,7 @@ class boundary_refine:
 
 
 
-
-#create an RGB false color vis of a ndwi raster. if the original value if less than zero, use green band.  if the original value is more than zero use blue band
+#create an RGB false color vis of a ndwi raster.  
 def false_color_vis(ndwi_raster):
   #create empty array
   false_color_r = np.zeros_like(ndwi_raster)
@@ -531,235 +514,3 @@ def false_color_vis(ndwi_raster):
 
   false_color_img = np.stack((false_color_r,false_color_g,false_color_b), axis=-1)
   return false_color_img
-
-
-
-
-
-
-# def tangent_dict(curve_points,tangents,extension_length):
-#     tangent_dict = dict([])
-#     for i in range(len(curve_points)):
-#         t_name = 'NA'+str(i+1)
-#         tangent_dict[t_name] = np.array([[ curve_points[i][0]-tangents[i][0], curve_points[i][1]-tangents[i][0] ],
-#                                          [ curve_points[i][0]+(tangents[i][0]*2), curve_points[i][1]+(tangents[i][0]*2) ]])
-
-#     return tangent_dict
-
-
-# def generate_offsets(curve_points,normals,distance):
-#   offset_out = np.zeros_like(curve_points)
-#   offset_in = np.zeros_like(curve_points)
-#   for i in range(len(curve_points)):
-#       offset_out[i] = curve_points[i] + normals[i]*distance
-#       offset_in[i] = curve_points[i] + normals[i]*(-distance)
-#   return offset_out, offset_in
-
-# def generate_sample_pts(curve_points,normals,count):
-#   sample_pts = []
-#   for i in range(len(curve_points)):
-#     sample_pt = curve_points[i] + normals[i]*(-count/2)
-#     t_samples = []
-#     t_samples.append(sample_pt)
-#     for j in range((count*2)-1):
-#       sample_pt = sample_pt + (normals[i]/2)
-#       t_samples.append(sample_pt)
-#     sample_pts.append(t_samples)
-#   return sample_pts
-
-
-# def sample_image(sample_pts,image_array,scale_down=1):
-#   sampled_pts = []
-#   for t_pts in sample_pts:
-#     t_samples = []
-#     for pt in t_pts:
-#       try:
-#         if int(pt[0]/scale_down) < image_array.shape[0] and int(pt[1]/scale_down) < image_array.shape[1]:
-#           t_samples.append([pt[0],pt[1],image_array[int(pt[0]/scale_down),int(pt[1]/scale_down)]])
-#         else:
-#           min_pixel = np.min(image_array.reshape(image_array.shape[0]*image_array.shape[1],3),axis=0)
-#           t_samples.append([pt[0],pt[1],min_pixel])
-#       except Exception as e:
-#         print(str(e))
-#         t_samples.append([pt[0],pt[1],np.average(image_array)])
-#     sampled_pts.append(t_samples)
-#   return sampled_pts
-
-# def image_from_tar(tar_path,search_string):
-#   tar = tarfile.open(tar_path, 'r')
-#   members = tar.getmembers()
-#   imgs = []
-#   for member in members:
-#     if search_string in member.name:
-#       img_bytes = BytesIO(tar.extractfile(member.name).read())
-#       img_lr = Image.open(img_bytes, mode='r').convert('RGB')
-#       imgs.append(img_lr)
-#   tar.close()
-#   return imgs
-
-
-# def rolling_highest_slope(seg_slopes, segmentation_transects,wz=3):
-#   boundary_pts = []
-
-#   sl = seg_slopes.shape[0]
-#   padded_slopes = np.concatenate((seg_slopes[sl-wz:,:,:],seg_slopes[:,:,:],seg_slopes[:wz,:,:]), axis=0)
-
-#   for i in range(sl):
-#     end_index = i + wz*2
-#     ave = np.mean(padded_slopes[i:end_index,0,1])
-
-#     selection_index = int(len(segmentation_transects[i]) * ave)
-
-#     boundary_pts.append(segmentation_transects[i][selection_index][:2])
-#   return boundary_pts
-
-# #THIS METHOD IS NOT WORKING AS EXPECTED
-# def rolling_average_seg_slopes(seg_slopes, segmentation_transects, wz=3):
-#   rolling_avg = np.zeros((seg_slopes.shape[0],3))
-#   sl = seg_slopes.shape[0]
-#   padded_slopes = np.concatenate((seg_slopes[sl-wz:,:,:],seg_slopes[:,:,:],seg_slopes[:wz,:,:]), axis=0)
-
-#   for i in range(wz,seg_slopes.shape[0]+ wz):
-#     # for j in range(seg_slopes.shape[2]):
-#     start_index = i - wz
-#     end_index = i + wz
-#     rolling_avg[i-wz, 0] = np.mean(padded_slopes[start_index:end_index,:,0])
-#     rolling_avg[i-wz, 1] = np.mean(padded_slopes[start_index:end_index,:,1])
-#     rolling_avg[i-wz, 2] = np.mean(padded_slopes[start_index:end_index,:,2])
-
-#   boundary_pts = []
-
-#   for i in range(seg_slopes.shape[0]):
-#     pts = segmentation_transects[i]
-#     #get the distance between each seg_slope point and the rolling average
-#     distances = np.zeros((3))
-#     for sl in range(seg_slopes.shape[1]):
-#       distances[sl] = np.linalg.norm(seg_slopes[i,sl,:] - rolling_avg[i,:])
-
-#     #find the seg_slope with the shortest distance
-#     closest_index = np.argmin(distances)
-#     closest_pt = seg_slopes[i,closest_index,1]
-
-#     selection_index = int(closest_pt * len(pts))
-#     if(selection_index >= len(pts)):
-#       selection_index = len(pts)-1
-
-#     # print(selection_index)
-#     boundary_pts.append(pts[selection_index][:2])
-
-#   return boundary_pts
-
-
-# def find_cluster_boundary(values,labels,pts):
-
-#   min_val_0 = np.min(values[labels == 0])
-#   max_val_0 = np.max(values[labels == 0])
-#   min_val_1 = np.min(values[labels == 1])
-#   max_val_1 = np.max(values[labels == 1])
-
-#   min = min_val_0
-#   if min_val_1 > min_val_0:
-#     min = min_val_1
-#   max = max_val_0
-#   if max_val_1 < max_val_0:
-#     max = max_val_1
-
-#   min = min*len(pts)
-#   max = max*len(pts)
-#   if(min >= len(pts)):
-#     min = len(pts)-1
-#   if(max >= len(pts)):
-#     max = len(pts)-1
-
-#   min_pt = pts[int(min)][:2]
-#   max_pt = pts[int(max)][:2]
-#   #average min_pt with max_pt
-#   ave_pt = np.add(min_pt,max_pt)/2
-
-#   return ave_pt
-
-
-
-
-
-
-# def get_shoreline_csv_paths(folder_path):
-#   # Get a list of all files in the folder
-#   files = os.listdir(folder_path)
-
-#   # Filter the list
-#   shoreline_files = [file for file in files if file.endswith('_sl.csv')]
-
-#   names = [file.replace('_sl.csv','') for file in shoreline_files]
-#   # Sort the shoreline_files and names using names as the key
-#   shoreline_files = [x for _,x in sorted(zip(names,shoreline_files))]
-#   names = sorted(names)
-
-#   return shoreline_files,names
-
-# def save_points_as_csv(points, filename):
-#   with open(filename, 'w', newline='') as csvfile:
-#     writer = csv.writer(csvfile)
-#     writer.writerows(points)
-#     print(filename + " saved.")
-
-
-# def refine_shorelines(shoreline_csv_paths,names, base_path, folder_path):
-#   table_path= base_path + "/proj_track.csv"
-#   df = pd.read_csv(table_path)
-#   df['refined'] = False
-
-#   for i in range(len(shoreline_csv_paths)):
-#     print(names[i])
-#     img = image_from_tar(base_path+"/upsampled.tar",names[i]+'_sr.png')
-#     if len(img)> 0:#if there is an image with that name
-
-#       #base the sampling on the image size
-#       min_dim = min(img[0].size)
-#       sample_size = max(int(min_dim/50),16)
-#       nurbs_size = sample_size
-
-#       #get the shoreline
-#       shoreline = np.genfromtxt(folder_path + "/" + shoreline_csv_paths[i], delimiter=',')
-#       flipped_shoreline = np.array([shoreline[:,1],shoreline[:,0]]).T
-
-#       # get shoreline properties
-#       area, perimeter = contour_properties(flipped_shoreline)
-#       if area < (img[0].size[0] * img[0].size[1] / 20 ): # if the area is less than 5% of the image there must be a problem
-#         print("contour has area less than 5%")
-#         continue
-
-#       if perimeter > ((img[0].size[0] + img[0].size[1]) * 3 ): # if the length is super long there must be a problem
-#         print("contour is too long for the image")
-#         continue
-
-#       # generate sample points
-#       smooth_shoreline = fit_nurbs(flipped_shoreline,size=nurbs_size,periodic=True)
-#       curve_points, normals = get_normal_vector_along_nurbs(smooth_shoreline,0.005)
-#       print(sample_size)
-#       sample_pts = generate_sample_pts(curve_points,normals,sample_size)
-
-#       #sample the original image
-#       img_arr = np.array(img[0])
-#       sampled_nir = sample_image(sample_pts,img_arr)
-
-#       #derive transects
-#       segmentation_transects,boundary_pts = cluster_transects_new(sampled_nir)
-#       bd_arr = np.array(boundary_pts)
-
-#       filename = folder_path + "/" + names[i] + "_rsl.csv"
-#       save_points_as_csv(boundary_pts, filename)
-
-#       df.loc[df['name'] == names[i], 'refined'] = True
-#   df.to_csv(table_path, index=False)
-
-#   return df
-
-# # def get_tar_filenames(tar_path):
-#   tar = tarfile.open(tar_path, 'r')
-#   names = []
-#   members = tar.getmembers()
-#   for member in members:
-#     names.append(member.name)
-#   tar.close()
-#   return names
