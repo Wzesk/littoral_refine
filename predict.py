@@ -7,7 +7,7 @@ import refine_boundary
 class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load any models or resources into memory for reuse across predictions"""
-        pass  # Add any setup code here if needed
+        pass
 
     def predict(
         self,
@@ -16,9 +16,6 @@ class Predictor(BasePredictor):
         ),
         img_path: Path = Input(
             description="Path to the input image for shoreline refinement"
-        ),
-        boundary_path: Path = Input(
-            description="Path to the boundary CSV file for refinement"
         ),
         output_path: str = Input(
             description="Path to save the output visualization",
@@ -46,8 +43,8 @@ class Predictor(BasePredictor):
         # ==========================
         # 2. Refine shoreline input
         # ==========================
-        # Initialize refiner
-        refiner = refine_boundary.boundary_refine(str(boundary_path), str(img_path))
+        # Initialize refiner using the generated shoreline_filepath
+        refiner = refine_boundary.boundary_refine(shoreline_filepath, str(img_path))
 
         # Run shore-normal refinement
         refiner.normal_thresholding()

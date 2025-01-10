@@ -37,6 +37,7 @@ def main():
     # ==========================
     # Initialize refiner
     refiner = refine_boundary.boundary_refine(boundary_path, img_path)
+    print(refiner)
 
     # Run shore-normal refinement
     refiner.normal_thresholding()
@@ -79,8 +80,8 @@ def main():
     plt.plot(cp_arr[:, 0], cp_arr[:, 1], color='green')
     plt.plot(bd_arr[:, 0], bd_arr[:, 1], color='red')
 
-    plt.legend()
-    plt.title('Refined Shoreline Visualization')
+    #plt.legend()
+    #plt.title('Refined Shoreline Visualization')
 
     # Save the plot as an image
     output_image_path = '/output/refined_shoreline_visualization.png'
