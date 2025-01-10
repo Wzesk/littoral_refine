@@ -17,10 +17,6 @@ class Predictor(BasePredictor):
         img_path: Path = Input(
             description="Path to the input image for shoreline refinement"
         ),
-        output_path: str = Input(
-            description="Path to save the output visualization",
-            default="/tmp/refined_shoreline_visualization.png",
-        ),
         simplification: float = Input(
             description="Factor for boundary simplification", ge=0.0, le=10.0, default=0.5
         ),
@@ -31,6 +27,8 @@ class Predictor(BasePredictor):
         """
         Run the shoreline refinement process and save the visualization as an image.
         """
+        output_path="/tmp/refined_shoreline_visualization.png"
+
         # ==========================
         # 1. Extract shoreline input
         # ==========================
