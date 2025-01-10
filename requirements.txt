@@ -1,0 +1,7 @@
+matplotlib==3.10.0
+numpy==2.1.0
+pillow==11.1.0
+scikit-image==0.25.0
+scikit-learn==1.6.0
+geomdl==5.3.1
+simplification==0.7.13
