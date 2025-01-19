@@ -10,9 +10,10 @@ from PIL import Image
 
 
 class boundary_refine:
-  def __init__(self,shoreline_path,img_path,delta=0.005):
+  def __init__(self,shoreline_path,img_path,delta=0.005,periodic=True):
     self.shoreline_path = shoreline_path
     self.refined_filepath = None
+    self.periodic = periodic
 
     #load the image
     self.img = Image.open(img_path)
@@ -24,6 +25,13 @@ class boundary_refine:
 
     #load the shoreline
     self.shoreline = np.genfromtxt(shoreline_path, delimiter=',')
+
+    #if the shoreline is periodic, make sure it is closed
+    if self.periodic:
+      # Close the polyline if it isn't already
+      if not np.all(self.shoreline[0] == self.shoreline[-1]):
+          #add the first point to the end of the np array
+          self.shoreline = np.vstack((self.shoreline,self.shoreline[0]))
     
     # initialize shoreline properties
     self.area = None
@@ -34,8 +42,9 @@ class boundary_refine:
 
     # determine if this is a useful boundary after area and perimeter have been set
     self.valid = True
-    if self.area < (self.img.size[0] * self.img.size[1] / 20 ): # if the area is less than 5% of the image there must be a problem
-      self.valid = False
+    if self.periodic:
+      if self.area < (self.img.size[0] * self.img.size[1] / 20 ): # if the area is less than 5% of the image there must be a problem
+        self.valid = False
 
     if self.perimeter > ((self.img.size[0] + self.img.size[1]) * 3 ): # if the length is super long there must be a problem
       self.valid = False
@@ -80,11 +89,11 @@ class boundary_refine:
 
     return self.refined_filepath
 
-  def fit_nurbs(self,degree=3,size=24,periodic=True):
-    #if periodic, set the last point equal to the first point
+  def fit_nurbs(self,degree=3,size=24):
     shoreline = self.shoreline
 
-    if periodic:
+    #if periodic, set the last point equal to the first point
+    if self.periodic:
         shoreline[len(shoreline)-1] = shoreline[0]
 
     #convert shoreline into a list of tuples
@@ -161,15 +170,12 @@ class boundary_refine:
       if len(points) < 3:
           return None  # Need at least 3 points for a closed shape
 
-      # Close the polyline if it isn't already
-      if not np.all(points[0] == points[-1]):
-          points.append(points[0])
-
       # Calculate the area using the shoelace formula
       area = 0
-      for i in range(len(points) - 1):
-          area += (points[i][0] * points[i+1][1] - points[i+1][0] * points[i][1])
-      area = abs(area) / 2
+      if self.periodic:
+        for i in range(len(points) - 1):
+            area += (points[i][0] * points[i+1][1] - points[i+1][0] * points[i][1])
+        area = abs(area) / 2
 
       # Calculate the perimeter
       perimeter = 0
@@ -337,7 +343,7 @@ class boundary_refine:
 
   def save_refined_shoreline(self):
     #save the refined shoreline to a csv file
-    self.refined_filepath = self.shoreline_path.replace('_sl.csv','_rl.csv')
+    self.refined_filepath = self.shoreline_path.replace('_sl','_rl')
     np.savetxt(self.refined_filepath, self.refined_boundary, delimiter=",", fmt="%f")
 
 ################################################################################

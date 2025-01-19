@@ -10,12 +10,15 @@ from simplification.cutil import simplify_coords
 ## outputs: raw shoreline, buffer mask, refined shoreline/s depending on which refinements are used (some are not yet implemented)
 
 
-def get_shoreline(mask_img_path, simplification=1, smoothing=3):
+def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
   img_in = Image.open(mask_img_path)
 
   i_arr = np.array(img_in)
-  i_arr = i_arr[:,:,0]
-  i_arr = i_arr.squeeze()
+
+  #check shape of the image, if it is 3D, take the first channel
+  if len(i_arr.shape) > 2:
+    i_arr = i_arr[:,:,0]
+
   mask_array = i_arr.squeeze()
 
 
@@ -32,7 +35,7 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3):
   # Extract the coordinates of the shoreline points
   shoreline_points = np.array(longest_contour).astype(int).squeeze()
 
-  # create a pixel mask with ja buffer around the longest contour
+  # create a pixel mask with a buffer around the longest contour
   shoreline_mask = np.zeros_like(mask_array)
   #set the longest_contour points equal to 1
   shoreline_mask[tuple(np.transpose(longest_contour.astype(np.uint32)))] = 1
@@ -49,11 +52,12 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3):
   smoothed_shoreline = np.convolve(simplified_shoreline[:, 0], np.ones(window_size)/window_size, mode='same')
   smoothed_shoreline = np.stack((smoothed_shoreline, np.convolve(simplified_shoreline[:, 1], np.ones(window_size)/window_size, mode='same')), axis=-1)
 
-  # Remove the first and last points from the smoothed shoreline -- for some reason these are at the centroid of the image
-  smoothed_shoreline = smoothed_shoreline[1:-1,:]
+  if(periodic):
+    # Remove the first and last points from the smoothed shoreline -- for some reason these are at the centroid of the image
+    smoothed_shoreline = smoothed_shoreline[1:-1,:]
 
-  # Append the first point to the end of the smoothed shoreline to close the loop
-  smoothed_shoreline = np.vstack((smoothed_shoreline,smoothed_shoreline[0,:]))
+    # Append the first point to the end of the smoothed shoreline to close the loop
+    smoothed_shoreline = np.vstack((smoothed_shoreline,smoothed_shoreline[0,:]))
   
   #switch the x and y coordinates
   smoothed_shoreline = np.array([smoothed_shoreline[:,1],smoothed_shoreline[:,0]]).T
