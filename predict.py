@@ -3,6 +3,13 @@ import numpy as np
 from cog import BasePredictor, Input, Path
 import extract_boundary
 import refine_boundary
+import csv
+
+def read_csv(file_path):
+    with open(file_path, newline='') as f:
+        reader = csv.reader(f)
+        data = list(reader)
+    return str(data)
 
 class Predictor(BasePredictor):
     def setup(self) -> None:
@@ -11,8 +18,8 @@ class Predictor(BasePredictor):
 
     def predict(
         self,
-        mask_filepath: Path = Input(
-            description="Path to the input mask image file"
+        input_shoreline: str = Input(
+            description="polyline as an array of coordinates: [[x,y],[x,y] ...]"
         ),
         img_path: Path = Input(
             description="Path to the input image for shoreline refinement"
@@ -27,22 +34,25 @@ class Predictor(BasePredictor):
         """
         Run the shoreline refinement process and save the visualization as an image.
         """
+        submitted_path = "/tmp/input_shoreline.csv"
         output_path="/tmp/refined_shoreline_visualization.png"
 
-        # ==========================
-        # 1. Extract shoreline input
-        # ==========================
-        shoreline, buffer_array, shoreline_filepath = extract_boundary.get_shoreline(
-            str(mask_filepath),
-            simplification=simplification,
-            smoothing=smoothing,
-        )
+        # # ==========================
+        # # 1. Extract shoreline input
+        # # ==========================
+        # shoreline, buffer_array, shoreline_filepath = extract_boundary.get_shoreline(
+        #     str(mask_filepath),
+        #     simplification=simplification,
+        #     smoothing=smoothing,
+        # )
+
+        np.savetxt(submitted_path, input_shoreline, delimiter=",", fmt="%f")
 
         # ==========================
         # 2. Refine shoreline input
         # ==========================
         # Initialize refiner using the generated shoreline_filepath
-        refiner = refine_boundary.boundary_refine(shoreline_filepath, str(img_path))
+        refiner = refine_boundary.boundary_refine(submitted_path, str(img_path))
 
         # Run shore-normal refinement
         refiner.normal_thresholding()
