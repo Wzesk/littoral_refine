@@ -24,17 +24,18 @@ class Predictor(BasePredictor):
         img_path: Path = Input(
             description="Path to the input image for shoreline refinement"
         ),
-        simplification: float = Input(
-            description="Factor for boundary simplification", ge=0.0, le=10.0, default=0.5
-        ),
-        smoothing: int = Input(
-            description="Factor for boundary smoothing", ge=0, le=10, default=2
-        ),
+        # simplification: float = Input(
+        #     description="Factor for boundary simplification", ge=0.0, le=10.0, default=0.5
+        # ),
+        # smoothing: int = Input(
+        #     description="Factor for boundary smoothing", ge=0, le=10, default=2
+        # ),
     ) -> Path:
         """
         Run the shoreline refinement process and save the visualization as an image.
         """
         submitted_path = "/tmp/input_shoreline.csv"
+        refined_path = "/tmp/refined_shoreline.csv"
         output_path="/tmp/refined_shoreline_visualization.png"
 
         # # ==========================
@@ -46,7 +47,11 @@ class Predictor(BasePredictor):
         #     smoothing=smoothing,
         # )
 
-        np.savetxt(submitted_path, input_shoreline, delimiter=",", fmt="%f")
+        # save a string to a txt file
+
+        input_shoreline_array = np.array(eval(input_shoreline))
+
+        np.savetxt(submitted_path, input_shoreline_array, delimiter=",", fmt="%f")
 
         # ==========================
         # 2. Refine shoreline input
@@ -60,46 +65,60 @@ class Predictor(BasePredictor):
         # ==========================
         # 3. Prepare for visualization
         # ==========================
-        # Original shoreline
-        original_shoreline = refiner.shoreline
-        # Points from NURBS curve
-        cp_arr = refiner.crv_pts
+        # # Original shoreline
+        # original_shoreline = refiner.shoreline
+        # # Points from NURBS curve
+        # cp_arr = refiner.crv_pts
+
         # Refined shoreline
         bd_arr = refiner.refined_boundary
-        # Image used for sampling
-        img_arr = np.array(refiner.img)
-        # Sampled values
-        sampled_nir = refiner.sample_values
 
-        # ==========================
-        # 4. Visualization and Saving
-        # ==========================
-        plt.axis('equal')
-        plt.rcParams['figure.figsize'] = [25, 25]
-        plt.grid(linestyle=':', color='0.5')
-        plt.gca().invert_yaxis()
+        # # Image used for sampling
+        # img_arr = np.array(refiner.img)
+        # # Sampled values
+        # sampled_nir = refiner.sample_values
 
-        # Plot the sampled color points
-        for t_s in sampled_nir:
-            for pt in t_s:
-                # Scale pixel from [0..255] to [0..1]
-                pixel = np.array([
-                    pt[2][0] / 255.0,
-                    pt[2][1] / 255.0,
-                    pt[2][2] / 255.0,
-                ])
-                plt.plot(pt[0], pt[1], '.', ms=5, color=pixel)
+        # # ==========================
+        # # 4. Visualization and Saving
+        # # ==========================
+        # plt.axis('equal')
+        # plt.rcParams['figure.figsize'] = [25, 25]
+        # plt.grid(linestyle=':', color='0.5')
+        # plt.gca().invert_yaxis()
 
-        # Plot shorelines
-        plt.plot(original_shoreline[:, 0], original_shoreline[:, 1], color='blue')
-        plt.plot(cp_arr[:, 0], cp_arr[:, 1], color='green')
-        plt.plot(bd_arr[:, 0], bd_arr[:, 1], color='red')
+        # # Plot the sampled color points
+        # for t_s in sampled_nir:
+        #     for pt in t_s:
+        #         # Scale pixel from [0..255] to [0..1]
+        #         pixel = np.array([
+        #             pt[2][0] / 255.0,
+        #             pt[2][1] / 255.0,
+        #             pt[2][2] / 255.0,
+        #         ])
+        #         plt.plot(pt[0], pt[1], '.', ms=5, color=pixel)
 
-        plt.legend()
-        plt.title('Refined Shoreline Visualization')
+        # # Plot shorelines
+        # plt.plot(original_shoreline[:, 0], original_shoreline[:, 1], color='blue')
+        # plt.plot(cp_arr[:, 0], cp_arr[:, 1], color='green')
+        # plt.plot(bd_arr[:, 0], bd_arr[:, 1], color='red')
 
-        # Save the plot as an image
-        plt.savefig(output_path)
-        print(f"Visualization saved to {output_path}")
+        # plt.legend()
+        # plt.title('Refined Shoreline Visualization')
 
-        return Path(output_path)
+        # # Save the plot as an image
+        # plt.savefig(output_path)
+        # print(f"Visualization saved to {output_path}")
+
+        np.savetxt(refined_path, bd_arr, delimiter=",", fmt="%f")
+
+        return Path(refined_path)
+    
+#### setting it up to respond with two outputs
+# class Output(BaseModel):
+#     cropped_table: Path
+#     json: Path
+#
+# class Predictor(BasePredictor):
+#     def predict(self) -> Output:
+#          ...
+#         return Output(cropped_table=..., json=...)
