@@ -87,6 +87,12 @@ class boundary_refine:
 
     self.refined_boundary = self.threshold_samples(sampled)
 
+    #if the input was periodic, make sure the output is periodic
+    if self.periodic:
+      #if the last point does not equal the first point, add the first point to the end of the np array
+      if not np.all(self.refined_boundary[0] == self.refined_boundary[-1]):
+        self.refined_boundary = np.vstack((self.refined_boundary,self.refined_boundary[0]))
+
     self.save_refined_shoreline()
 
     return self.refined_filepath
