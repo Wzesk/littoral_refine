@@ -5,12 +5,31 @@ import skimage.morphology as morphology
 from simplification.cutil import simplify_coords
 
 
-## I am now thinking this function should just get rolled into the boundary refine class, so the interaction with the class is simpler
-## inputs: mask and original image
-## outputs: raw shoreline, buffer mask, refined shoreline/s depending on which refinements are used (some are not yet implemented)
-
-
 def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
+  """Extract the shoreline from a mask image.
+
+  Parameters
+  ----------
+  mask_img_path : str
+      Path to the mask image file.
+  simplification : float, optional
+      Simplification factor for the shoreline points, by default 1.
+  smoothing : int, optional
+      Smoothing window size for the shoreline points, by default 3.
+  periodic : bool, optional
+      Whether the shoreline is periodic (closed loop), by default True.
+
+  Returns
+  -------
+  tuple
+      - np.ndarray : Smoothed shoreline points.
+      - np.ndarray : Buffer mask around the shoreline.
+      - str : Path to the saved shoreline CSV file.
+
+  Examples
+  --------
+  >>> shoreline, buffer, shoreline_filepath = get_shoreline('path/to/mask.png', simplification=0.5, smoothing=2)
+  """
   img_in = Image.open(mask_img_path)
 
   i_arr = np.array(img_in)

@@ -6,11 +6,38 @@ import math
 from geomdl import fitting
 import numpy as np
 from PIL import Image
+import matplotlib.pyplot as plt
 
 
 
 class boundary_refine:
+  """Class to refine and visualize shoreline boundaries.
+
+  Attributes
+  ----------
+  img : PIL.Image
+      The original image.
+  sample_values : list
+      Sampled NIR values.
+  shoreline : np.ndarray
+      Array of shoreline points.
+  refined_boundary : np.ndarray
+      Array of refined boundary points.
+  """
   def __init__(self,shoreline_path,img_path,delta=0.005,periodic=True):
+    """Initialize the boundary_refine class.
+
+    Parameters
+    ----------
+    shoreline_path : str
+        Path to the shoreline CSV file.
+    img_path : str
+        Path to the image file.
+    delta : float, optional
+        Delta value for NURBS fitting, by default 0.005.
+    periodic : bool, optional
+        Whether the shoreline is periodic (closed loop), by default True.
+    """
     self.shoreline_path = shoreline_path
     self.refined_filepath = None
     self.periodic = periodic
@@ -69,12 +96,12 @@ class boundary_refine:
     return self
   
   def normal_thresholding(self):
-    """
-    Refine the shoreline boundary using normal vectors along a nurbs curve
+    """Refine the shoreline boundary using normal vectors along a NURBS curve.
 
-    Returns:
-    -----------
-    refined_boundary: np.array
+    Returns
+    -------
+    np.ndarray
+        Refined boundary points.
     """
     self.fit_nurbs()
     self.calc_normal_vector_along_nurbs()
@@ -90,6 +117,20 @@ class boundary_refine:
     return self.refined_filepath
 
   def fit_nurbs(self,degree=3,size=24):
+    """Fit a NURBS curve to the shoreline points.
+
+    Parameters
+    ----------
+    degree : int, optional
+        Degree of the NURBS curve, by default 3.
+    size : int, optional
+        Number of control points for the NURBS curve, by default 24.
+
+    Returns
+    -------
+    geomdl.NURBS.Curve
+        Fitted NURBS curve.
+    """
     shoreline = self.shoreline
 
     #if periodic, set the last point equal to the first point
@@ -191,6 +232,13 @@ class boundary_refine:
       return area, perimeter
 
   def generate_normal_sample_pts(self):
+    """Generate sample points along the normal vectors of the NURBS curve.
+
+    Returns
+    -------
+    list
+        List of sample points along the normal vectors.
+    """
     sample_pts = []
     curve_points = self.crv_pts
     count = self.sample_size
@@ -212,6 +260,20 @@ class boundary_refine:
     return sample_pts
 
   def sample_image(self, sample_pts, scale_down=1):
+    """Sample the image at the given sample points.
+
+    Parameters
+    ----------
+    sample_pts : list
+        List of sample points.
+    scale_down : int, optional
+        Scale down factor for the image, by default 1.
+
+    Returns
+    -------
+    list
+        List of sampled points with their corresponding pixel values.
+    """
     image_array = np.array(self.img)
     sampled_pts = []
 
@@ -233,6 +295,18 @@ class boundary_refine:
     return sampled_pts
 
   def threshold_samples(self, sampled):
+    """Threshold the sampled points to refine the boundary.
+
+    Parameters
+    ----------
+    sampled : list
+        List of sampled points.
+
+    Returns
+    -------
+    np.ndarray
+        Array of refined boundary points.
+    """
     segmentation_transects = []
     refined_boundary_pts = []
 
@@ -262,6 +336,18 @@ class boundary_refine:
     return refined_boundary_pts
 
   def cluster_transects(self, sampled):
+    """Cluster transects using KMeans clustering.
+
+    Parameters
+    ----------
+    sampled : list
+        List of sampled points.
+
+    Returns
+    -------
+    list
+        List of refined boundary points.
+    """
     segmentation_transects = []
     refined_boundary_pts = []
     print(len(sampled))
@@ -285,72 +371,55 @@ class boundary_refine:
 
     return refined_boundary_pts
 
-  #this function is directly from coastsat!!
-  #use mask as labels
-  def find_wl_contours2(self, im_ms, nir, im_labels, im_ref_buffer):
-    np.seterr(all='ignore') # raise/ignore divisions by 0 and nans
-    # create array with same shape as im_ref_buffer with all zeros to use as cloud mask since we do not have one
-    cloud_mask = np.zeros_like(im_ref_buffer, dtype=bool)
+  def visualize_results(self,draw_image=False,draw_sampling=False):
+    """Visualize the results of the boundary refinement.
 
-    nrows = im_ref_buffer.shape[0]
-    ncols = im_ref_buffer.shape[1]
+    Parameters
+    ----------
+    draw_image : bool, optional
+        Whether to draw the original image, by default False.
+    draw_sampling : bool, optional
+        Whether to draw the sampled NIR values, by default False.
+    """
+    plt.axis('equal')
+    plt.rcParams['figure.figsize'] = [25, 25]
+    plt.grid(linestyle=':', color='0.5') 
+    plt.gca().invert_yaxis()
 
-    # calculate Normalized Difference Modified Water Index (NIR - G)
-    im_wi = self.ndwi(nir[:,:,0], im_ms[:,:,1], cloud_mask)
+    self.sample_image
+    if draw_image:
+        img_arr = np.array(self.img)
+        plt.imshow(img_arr) # check alignment with original image
 
-    #export index
-    lens = im_wi
+    if draw_sampling:
+        sampled_nir = self.sample_values
+        for t_s in sampled_nir:
+            for pt in t_s:
+                pixel = np.array([pt[2][0]/255,pt[2][1]/255,pt[2][2]/255])
+                plt.plot(pt[0], pt[1], '.',ms=5,color=pixel)
 
-    # stack indices together
-    im_ind = np.stack((im_wi, im_mwi), axis=-1)
-    vec_ind = im_ind.reshape(nrows*ncols,2)
+    plt.plot(self.shoreline[:,0],self.shoreline[:,1],color='blue')
+    plt.plot(self.refined_boundary[:,0],self.refined_boundary[:,1],color='red')
 
-    # reshape labels into vectors
-    vec_sand = im_labels[:,:,0].reshape(ncols*nrows)
-    vec_water = im_labels[:,:,1].reshape(ncols*nrows)
-
-    # create a buffer around the sandy beach
-    vec_buffer = im_ref_buffer.reshape(nrows*ncols)
-
-    # select water/sand pixels that are within the buffer
-    int_water = vec_ind[np.logical_and(vec_buffer,vec_water),:]
-    int_sand = vec_ind[np.logical_and(vec_buffer,vec_sand),:]
-
-    # make sure both classes have the same number of pixels before thresholding
-    if len(int_water) > 0 and len(int_sand) > 0:
-        if np.argmin([int_sand.shape[0],int_water.shape[0]]) == 1:
-            int_sand = int_sand[np.random.choice(int_sand.shape[0],int_water.shape[0], replace=False),:]
-        else:
-            int_water = int_water[np.random.choice(int_water.shape[0],int_sand.shape[0], replace=False),:]
-
-    # threshold the sand/water intensities
-    int_all = np.append(int_water,int_sand, axis=0)
-
-    t_wi = filters.threshold_otsu(int_all[:,1])
-
-    # find contour with Marching-Squares algorithm
-    im_wi_buffer = np.copy(im_wi)
-    im_wi_buffer[~im_ref_buffer] = np.nan
-
-    contours_wi = measure.find_contours(im_wi_buffer, t_wi)
-
-
-    # remove contour points that are NaNs (around clouds)
-    contours_wi = self.process_contours(contours_wi)
-
-    # only return MNDWI contours and threshold
-    return contours_wi, t_ave,lens
-
-  def save_refined_shoreline(self):
-    #save the refined shoreline to a csv file
-    self.refined_filepath = self.shoreline_path.replace('_sl','_rl')
-    np.savetxt(self.refined_filepath, self.refined_boundary, delimiter=",", fmt="%f")
-
-################################################################################
-#######################     static methods     #################################
-################################################################################
+    plt.show()
 
   def rolling_highest_slope(self, seg_slopes, segmentation_transects,wz=3):
+    """Calculate the rolling highest slope for segmentation.
+
+    Parameters
+    ----------
+    seg_slopes : np.ndarray
+        Array of segment slopes.
+    segmentation_transects : list
+        List of segmentation transects.
+    wz : int, optional
+        Window size for calculating the rolling average, by default 3.
+
+    Returns
+    -------
+    list
+        List of refined boundary points.
+    """
     boundary_pts = []
 
     sl = seg_slopes.shape[0]
@@ -367,6 +436,20 @@ class boundary_refine:
     return boundary_pts
 
   def find_highest_derivatives(self, points,top=3):
+    """Find the highest derivatives (slopes) between points.
+
+    Parameters
+    ----------
+    points : np.ndarray
+        Array of points.
+    top : int, optional
+        Number of top derivatives to return, by default 3.
+
+    Returns
+    -------
+    np.ndarray
+        Array of top derivatives.
+    """
     derivatives = np.zeros(points.shape)
 
     for i in range(len(points)-1):
@@ -384,6 +467,19 @@ class boundary_refine:
     return derivatives[:top]
 
   def cluster_transects(self, sampled):
+    """Cluster transects using KMeans clustering.
+
+    Parameters
+    ----------
+    sampled : list
+        List of sampled points.
+
+    Returns
+    -------
+    tuple
+        - list : List of segmentation transects.
+        - list : List of refined boundary points.
+    """
     segmentation_transects = []
     boundary_pts = []
     print(len(sampled))
@@ -400,13 +496,29 @@ class boundary_refine:
       seg_array[:,2] = kmeans.predict(seg_array)
 
       #get the point at the cluster boundary
-      boundary_val = find_cluster_boundary(seg_array[:,0],seg_array[:,2],t_s)
+      boundary_val = self.find_cluster_boundary(seg_array[:,0],seg_array[:,2],t_s)
 
       segmentation_transects.append(seg_array)
       boundary_pts.append(boundary_val)
     return segmentation_transects,boundary_pts
 
   def find_cluster_boundary(self, values,labels,pts):
+    """Find the boundary point between clusters.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Array of values used for clustering.
+    labels : np.ndarray
+        Array of cluster labels.
+    pts : list
+        List of points corresponding to the values.
+
+    Returns
+    -------
+    np.ndarray
+        The average point between the cluster boundaries.
+    """
 
     min_val_0 = np.min(values[labels == 0])
     max_val_0 = np.max(values[labels == 0])
@@ -434,71 +546,218 @@ class boundary_refine:
 
     return ave_pt
 
-  #from coastsat
-  def ndwi(im1, im2):
-    # reshape the two images
-    vec1 = im1.reshape(im1.shape[0] * im1.shape[1])
-    vec2 = im2.reshape(im2.shape[0] * im2.shape[1])
-
-    # initialise with NaNs
-    vec_nd = np.ones(len(vec1)) * np.nan
-
-    # compute the normalised difference index
-    temp = np.divide(vec1 - vec2,
-                      vec1 + vec2)
-    vec_nd = temp
-    #normalize values in vec_nd to go from 0 to 1
-    vec_nd = (vec_nd - np.min(vec_nd)) / (np.max(vec_nd) - np.min(vec_nd))
-    #vec_nd = vec_nd * 2 - 1
-    vec_nd[np.isnan(vec_nd)] = 1
-
-    # reshape into image
-    im_nd = vec_nd.reshape(im1.shape[0], im1.shape[1])
-
-    inv_im_nd = 1 - im_nd
-    return inv_im_nd
-
-  #from coastsat
-  def process_contours(contours):
-      # initialise variable
-      contours_nonans = []
-      # loop through contours and only keep the ones without NaNs
-      for k in range(len(contours)):
-          if np.any(np.isnan(contours[k])):
-              index_nan = np.where(np.isnan(contours[k]))[0]
-              contours_temp = np.delete(contours[k], index_nan, axis=0)
-              if len(contours_temp) > 1:
-                  contours_nonans.append(contours_temp)
-          else:
-              contours_nonans.append(contours[k])
-      return contours_nonans
-  
-  # # this is the dumb version of thresholding, perhaps helpful to show as comparison
-  # def simple_cubes(self, im_ms, ave, im_labels, im_ref_buffer):
-  #   np.seterr(all='ignore') # raise/ignore divisions by 0 and nans
-
-  #   nrows = im_ref_buffer.shape[0]
-  #   ncols = im_ref_buffer.shape[1]
-
-  #   im_wi = ndwi(im_ms[:,:,1], ave) # NDWI G - NIR / G + NIR
-  #   norm_ave = (ave - np.min(ave)) / (np.max(ave) - np.min(ave))
-  #   im_wi_buffer = blend_masks(im_wi,im_ref_buffer,im_labels[:,:,0])
-
-  #   #apply gaussian blur to ndwi_buffer
-  #   blurred_image = cv2.GaussianBlur(im_wi_buffer, (101,101), cv2.BORDER_DEFAULT)
-
-  #   # Find contours at a constant value
-  #   contours = measure.find_contours(im_wi_buffer, 0.5)
-
-  #   nir_buffer = blend_masks(norm_ave,im_ref_buffer,im_labels[:,:,0])
-  #   nir_contours = measure.find_contours(nir_buffer, 0.5)
-
-  #   return blurred_image,contours,nir_contours,nir_buffer
+  def save_refined_shoreline(self):
+    """Save the refined shoreline to a CSV file."""
+    self.refined_filepath = self.shoreline_path.replace('_sl','_rl')
+    np.savetxt(self.refined_filepath, self.refined_boundary, delimiter=",", fmt="%f")
 
 
+def find_wl_contours2(im_ms, nir, im_labels, im_ref_buffer):
+  """Find waterline contours using the provided masks and labels.
 
-#create an RGB false color vis of a ndwi raster.  
-def false_color_vis(ndwi_raster):
+  Note:  This functions is copied from the coastsat project, modified only to
+  fit within the refiner class structure. It is included as a benchmark of existing refinement methods:
+  https://github.com/kvos/CoastSat
+
+  Parameters
+  ----------
+  im_ms : np.ndarray
+      Multispectral image array.
+  nir : np.ndarray
+      Near-infrared image array.
+  im_labels : np.ndarray
+      Image labels array.
+  im_ref_buffer : np.ndarray
+      Reference buffer mask.
+
+  Returns
+  -------
+  tuple
+      - list : Contours of the waterline.
+      - float : Threshold value.
+      - np.ndarray : Lens array.
+  """
+  np.seterr(all='ignore') # raise/ignore divisions by 0 and nans
+  # create array with same shape as im_ref_buffer with all zeros to use as cloud mask since we do not have one
+  cloud_mask = np.zeros_like(im_ref_buffer, dtype=bool)
+
+  nrows = im_ref_buffer.shape[0]
+  ncols = im_ref_buffer.shape[1]
+
+  # calculate Normalized Difference Modified Water Index (NIR - G)
+  im_wi = ndwi(nir[:,:,0], im_ms[:,:,1], cloud_mask)
+
+  #export index
+  lens = im_wi
+
+  # stack indices together --  todo:  removed the second index so stacking the same index twice.  
+  im_ind = np.stack((im_wi, im_wi), axis=-1)
+  vec_ind = im_ind.reshape(nrows*ncols,2)
+
+  # reshape labels into vectors
+  vec_sand = im_labels[:,:,0].reshape(ncols*nrows)
+  vec_water = im_labels[:,:,1].reshape(ncols*nrows)
+
+  # create a buffer around the sandy beach
+  vec_buffer = im_ref_buffer.reshape(nrows*ncols)
+
+  # select water/sand pixels that are within the buffer
+  int_water = vec_ind[np.logical_and(vec_buffer,vec_water),:]
+  int_sand = vec_ind[np.logical_and(vec_buffer,vec_sand),:]
+
+  # make sure both classes have the same number of pixels before thresholding
+  if len(int_water) > 0 and len(int_sand) > 0:
+      if np.argmin([int_sand.shape[0],int_water.shape[0]]) == 1:
+          int_sand = int_sand[np.random.choice(int_sand.shape[0],int_water.shape[0], replace=False),:]
+      else:
+          int_water = int_water[np.random.choice(int_water.shape[0],int_sand.shape[0], replace=False),:]
+
+  # threshold the sand/water intensities
+  int_all = np.append(int_water,int_sand, axis=0)
+
+  t_wi = filters.threshold_otsu(int_all[:,1])
+
+  # find contour with Marching-Squares algorithm
+  im_wi_buffer = np.copy(im_wi)
+  im_wi_buffer[~im_ref_buffer] = np.nan
+
+  contours_wi = measure.find_contours(im_wi_buffer, t_wi)
+
+
+  # remove contour points that are NaNs (around clouds)
+  contours_wi = self.process_contours(contours_wi)
+
+  # only return MNDWI contours and threshold
+  return contours_wi, t_ave,lens
+
+def ndwi(im1, im2):
+  """Calculate the Normalized Difference Water Index (NDWI).
+
+  Note:  This functions is copied from the coastsat project
+  and included for validation and comparison and existing methods:
+  https://github.com/kvos/CoastSat
+
+  Parameters
+  ----------
+  im1 : np.ndarray
+      First image array (e.g., NIR band).
+  im2 : np.ndarray
+      Second image array (e.g., Green band).
+
+  Returns
+  -------
+  np.ndarray
+      NDWI image array.
+  """
+  # reshape the two images
+  vec1 = im1.reshape(im1.shape[0] * im1.shape[1])
+  vec2 = im2.reshape(im2.shape[0] * im2.shape[1])
+
+  # initialise with NaNs
+  vec_nd = np.ones(len(vec1)) * np.nan
+
+  # compute the normalised difference index
+  temp = np.divide(vec1 - vec2,
+                    vec1 + vec2)
+  vec_nd = temp
+  #normalize values in vec_nd to go from 0 to 1
+  vec_nd = (vec_nd - np.min(vec_nd)) / (np.max(vec_nd) - np.min(vec_nd))
+  #vec_nd = vec_nd * 2 - 1
+  vec_nd[np.isnan(vec_nd)] = 1
+
+  # reshape into image
+  im_nd = vec_nd.reshape(im1.shape[0], im1.shape[1])
+
+  inv_im_nd = 1 - im_nd
+  return inv_im_nd
+
+def process_contours(contours):
+  """Process contours to remove any NaN values.
+
+  Note:  This functions is copied from the coastsat project
+  and included for validation and comparison and existing methods:
+  https://github.com/kvos/CoastSat
+
+  Parameters
+  ----------
+  contours : list
+      List of contours.
+
+  Returns
+  -------
+  list
+      List of contours without NaN values.
+  """
+
+  contours_nonans = []
+  # loop through contours and only keep the ones without NaNs
+  for k in range(len(contours)):
+      if np.any(np.isnan(contours[k])):
+          index_nan = np.where(np.isnan(contours[k]))[0]
+          contours_temp = np.delete(contours[k], index_nan, axis=0)
+          if len(contours_temp) > 1:
+              contours_nonans.append(contours_temp)
+      else:
+          contours_nonans.append(contours[k])
+  return contours_nonans
+
+def universal_simple_thresholding(im_ms, ave, im_labels, im_ref_buffer):
+  """Apply universal simple thresholding to the image.
+
+  note: this is a dumb version of thresholding, included as a benchmark/comparison
+
+  Parameters
+  ----------
+  im_ms : np.ndarray
+      Multispectral image array.
+  ave : np.ndarray
+      Average image array.
+  im_labels : np.ndarray
+      Image labels array.
+  im_ref_buffer : np.ndarray
+      Reference buffer mask.
+
+  Returns
+  -------
+  tuple
+      - np.ndarray : Blurred NDWI image.
+      - list : Contours of the NDWI image.
+      - list : Contours of the normalized average image.
+      - np.ndarray : Normalized average image buffer.
+  """
+  np.seterr(all='ignore') # raise/ignore divisions by 0 and nans
+
+  nrows = im_ref_buffer.shape[0]
+  ncols = im_ref_buffer.shape[1]
+
+  im_wi = ndwi(im_ms[:,:,1], ave) # NDWI G - NIR / G + NIR
+  norm_ave = (ave - np.min(ave)) / (np.max(ave) - np.min(ave))
+  im_wi_buffer = blend_masks(im_wi,im_ref_buffer,im_labels[:,:,0])
+
+  #apply gaussian blur to ndwi_buffer
+  blurred_image = cv2.GaussianBlur(im_wi_buffer, (101,101), cv2.BORDER_DEFAULT)
+
+  # Find contours at a constant value
+  contours = measure.find_contours(im_wi_buffer, 0.5)
+
+  nir_buffer = blend_masks(norm_ave,im_ref_buffer,im_labels[:,:,0])
+  nir_contours = measure.find_contours(nir_buffer, 0.5)
+
+  return blurred_image,contours,nir_contours,nir_buffer
+
+def false_color_index(ndwi_raster):
+  """Create an RGB false color visualization of an NDWI raster.
+
+  Parameters
+  ----------
+  ndwi_raster : np.ndarray
+      NDWI raster array.
+
+  Returns
+  -------
+  np.ndarray
+      RGB false color image.
+  """
   #create empty array
   false_color_r = np.zeros_like(ndwi_raster)
   false_color_b = np.zeros_like(ndwi_raster)
