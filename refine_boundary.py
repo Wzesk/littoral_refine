@@ -6,6 +6,7 @@ import math
 from geomdl import fitting
 import numpy as np
 from PIL import Image
+import matplotlib.pyplot as plt
 
 
 
@@ -278,6 +279,31 @@ class boundary_refine:
       refined_boundary_pts.append(boundary_val)
 
     return refined_boundary_pts
+  
+  #visualize the output
+  def visualize_results(self,draw_image=False,draw_sampling=False):
+    plt.axis('equal')
+    plt.rcParams['figure.figsize'] = [25, 25]
+    plt.grid(linestyle=':', color='0.5') 
+    plt.gca().invert_yaxis()
+
+    self.sample_image
+    if draw_image:
+        img_arr = np.array(self.img)
+        plt.imshow(img_arr) # check alignment with original image
+
+    if draw_sampling:
+        sampled_nir = self.sample_values
+        for t_s in sampled_nir:
+            for pt in t_s:
+                pixel = np.array([pt[2][0]/255,pt[2][1]/255,pt[2][2]/255])
+                plt.plot(pt[0], pt[1], '.',ms=5,color=pixel)
+
+    plt.plot(self.shoreline[:,0],self.shoreline[:,1],color='blue')
+    plt.plot(self.refined_boundary[:,0],self.refined_boundary[:,1],color='red')
+
+    plt.show()
+
 
   #this function is directly from coastsat!!
   #use mask as labels
