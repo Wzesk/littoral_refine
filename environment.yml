@@ -1,0 +1,11 @@
+name: littoral_refine
+channels:
+  - conda-forge
+  - orbingol
+dependencies:
+  - python==3.10.12
+  - numpy
+  - pillow
+  - scikit-image
+  - simplification
+  - geomdl
