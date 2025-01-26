@@ -11,6 +11,37 @@ def read_csv(file_path):
         data = list(reader)
     return str(data)
 
+
+
+def identify_periodic(input_shoreline_array, threshold=0.25):
+    """
+    Identify if the shoreline is periodic by comparing the distance between the first and last points
+    with the total length of the shoreline.
+
+    Parameters
+    ----------
+    input_shoreline_array : np.ndarray
+        2D numpy array of the input shoreline.
+    threshold : float
+        Threshold for periodicity.
+
+    Returns
+    -------
+    bool
+        True if the shoreline is periodic, False otherwise.
+    """
+    periodic = False
+    # Calculate the length of the shoreline
+    length = np.sum(np.sqrt(np.sum(np.diff(input_shoreline_array, axis=0)**2, axis=1)))
+    # Calculate the distance between the first and last points
+    distance = np.linalg.norm(input_shoreline_array[0] - input_shoreline_array[-1])
+    if distance / length < threshold:
+        periodic = True
+
+    return periodic
+
+
+
 class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load any models or resources into memory for reuse across predictions"""
@@ -50,6 +81,7 @@ class Predictor(BasePredictor):
         # save a string to a txt file
 
         input_shoreline_array = np.array(eval(input_shoreline))
+        likely_periodic = identify_periodic(input_shoreline_array)
 
         np.savetxt(submitted_path, input_shoreline_array, delimiter=",", fmt="%f")
 
@@ -57,7 +89,7 @@ class Predictor(BasePredictor):
         # 2. Refine shoreline input
         # ==========================
         # Initialize refiner using the generated shoreline_filepath
-        refiner = refine_boundary.boundary_refine(submitted_path, str(img_path))
+        refiner = refine_boundary.boundary_refine(submitted_path, str(img_path), periodic=likely_periodic)
 
         # Run shore-normal refinement
         refiner.normal_thresholding()

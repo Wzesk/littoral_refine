@@ -46,8 +46,10 @@ class boundary_refine:
       if self.area < (self.img.size[0] * self.img.size[1] / 20 ): # if the area is less than 5% of the image there must be a problem
         self.valid = False
 
-    if self.perimeter > ((self.img.size[0] + self.img.size[1]) * 3 ): # if the length is super long there must be a problem
-      self.valid = False
+    #if self.perimeter is not None, check the length of the perimeter
+    if self.perimeter is not None:
+      if self.perimeter > ((self.img.size[0] + self.img.size[1]) * 3 ): # if the length is super long there must be a problem
+        self.valid = False
 
     #initialize nurbs params
     self.nurbs = None
