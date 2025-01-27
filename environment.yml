@@ -9,3 +9,6 @@ dependencies:
   - scikit-image
   - simplification
   - geomdl
+  - pip
+  - pip:
+    - aquarel

@@ -8,6 +8,8 @@ import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 
+from aquarel import load_theme
+
 
 
 class boundary_refine:
@@ -86,6 +88,9 @@ class boundary_refine:
     self.sample_pts = None
     self.sample_values = None
 
+    #kmeans clusters
+    self.clustered_samples = None
+
     #initialize boundary
     self.refined_boundary = None
 
@@ -110,7 +115,28 @@ class boundary_refine:
 
     sampled = self.sample_image(sample_pts)
 
-    self.refined_boundary = self.threshold_samples(sampled)
+    self.refined_boundary,self.clustered_samples = self.threshold_samples(sampled)
+
+    self.save_refined_shoreline()
+
+    return self.refined_filepath
+
+  def kmeans_thresholding(self):
+    """Refine the shoreline boundary using normal vectors along a NURBS curve.
+
+    Returns
+    -------
+    np.ndarray
+        Refined boundary points.
+    """
+    self.fit_nurbs()
+    self.calc_normal_vector_along_nurbs()
+
+    sample_pts = self.generate_normal_sample_pts()
+
+    sampled = self.sample_image(sample_pts)
+
+    self.refined_boundary,self.clustered_samples = self.cluster_transects(sampled)
 
     self.save_refined_shoreline()
 
@@ -333,43 +359,7 @@ class boundary_refine:
 
     refined_boundary_pts = np.array(self.rolling_highest_slope(seg_slopes, sampled))
 
-    return refined_boundary_pts
-
-  def cluster_transects(self, sampled):
-    """Cluster transects using KMeans clustering.
-
-    Parameters
-    ----------
-    sampled : list
-        List of sampled points.
-
-    Returns
-    -------
-    list
-        List of refined boundary points.
-    """
-    segmentation_transects = []
-    refined_boundary_pts = []
-    print(len(sampled))
-    for t_s in sampled:
-      seg_array = np.zeros((len(t_s),3))
-      for i in range(len(t_s)):
-        seg_array[i][0] = float(i)
-        seg_array[i][1] = np.mean(t_s[i][2])
-      seg_array[:,0] = seg_array[:,0]/np.max(seg_array[:,0])
-      seg_array[:,1] = seg_array[:,1]/np.max(seg_array[:,1])
-
-      #perform kmeans clustering
-      kmeans = KMeans(n_clusters=2, random_state=0).fit(seg_array)
-      seg_array[:,2] = kmeans.predict(seg_array)
-
-      #get the point at the cluster boundary
-      boundary_val = self.find_cluster_boundary(seg_array[:,0],seg_array[:,2],t_s)
-
-      segmentation_transects.append(seg_array)
-      refined_boundary_pts.append(boundary_val)
-
-    return refined_boundary_pts
+    return refined_boundary_pts,segmentation_transects
 
   def visualize_results(self,draw_image=False,draw_sampling=False):
     """Visualize the results of the boundary refinement.
@@ -381,27 +371,53 @@ class boundary_refine:
     draw_sampling : bool, optional
         Whether to draw the sampled NIR values, by default False.
     """
-    plt.axis('equal')
-    plt.rcParams['figure.figsize'] = [25, 25]
-    plt.grid(linestyle=':', color='0.5') 
-    plt.gca().invert_yaxis()
 
-    self.sample_image
-    if draw_image:
-        img_arr = np.array(self.img)
-        plt.imshow(img_arr) # check alignment with original image
+    with load_theme("gruvbox_dark"):
+      plt.axis('equal')
+      plt.gca().invert_yaxis()
 
-    if draw_sampling:
-        sampled_nir = self.sample_values
-        for t_s in sampled_nir:
-            for pt in t_s:
-                pixel = np.array([pt[2][0]/255,pt[2][1]/255,pt[2][2]/255])
-                plt.plot(pt[0], pt[1], '.',ms=5,color=pixel)
+      self.sample_image
+      if draw_image:
+          img_arr = np.array(self.img)
+          plt.imshow(img_arr) 
 
-    plt.plot(self.shoreline[:,0],self.shoreline[:,1],color='blue')
-    plt.plot(self.refined_boundary[:,0],self.refined_boundary[:,1],color='red')
+      if draw_sampling:
+          sampled_nir = self.sample_values
+          for t_s in sampled_nir:
+              for pt in t_s:
+                  pixel = np.array([pt[2][0]/255,pt[2][1]/255,pt[2][2]/255])
+                  plt.plot(pt[0], pt[1], '.',ms=5,color=pixel)
 
-    plt.show()
+      plt.plot(self.shoreline[:,0],self.shoreline[:,1],color='blue')
+      plt.plot(self.refined_boundary[:,0],self.refined_boundary[:,1],color='red')
+
+      plt.show()
+
+  def visualize_clusters(self, bounds=slice(None,None)):    
+    """
+    Visualize the clustering results
+    """
+    if self.clustered_samples is not None:
+      with load_theme("gruvbox_dark"):
+        plt.axis('equal')
+      
+        for test_pts in self.clustered_samples:
+          plt.scatter(test_pts[:,0], test_pts[:,1], c=test_pts[:,2])
+        plt.show()
+
+  def visualize_max_slopes(self,bounds=slice(None,None)):  
+    """
+    Visualize location of shoreline derivative
+    """
+    if self.clustered_samples is not None:
+      with load_theme("gruvbox_dark"):
+        plt.axis('equal')
+
+        for test_pts in self.clustered_samples:
+          dirs = self.find_highest_derivatives(test_pts)
+          plt.scatter(test_pts[:,0], test_pts[:,1], c='grey')
+          plt.scatter(dirs[:,1],dirs[:,2],c='red')
+        plt.show()
 
   def rolling_highest_slope(self, seg_slopes, segmentation_transects,wz=3):
     """Calculate the rolling highest slope for segmentation.
@@ -477,12 +493,12 @@ class boundary_refine:
     Returns
     -------
     tuple
-        - list : List of segmentation transects.
         - list : List of refined boundary points.
+        - list : List of segmentation transects.
     """
     segmentation_transects = []
     boundary_pts = []
-    print(len(sampled))
+
     for t_s in sampled:
       seg_array = np.zeros((len(t_s),3))
       for i in range(len(t_s)):
@@ -500,7 +516,9 @@ class boundary_refine:
 
       segmentation_transects.append(seg_array)
       boundary_pts.append(boundary_val)
-    return segmentation_transects,boundary_pts
+
+    refined_boundary_pts = np.array(boundary_pts)
+    return refined_boundary_pts,segmentation_transects
 
   def find_cluster_boundary(self, values,labels,pts):
     """Find the boundary point between clusters.
@@ -566,9 +584,9 @@ def find_wl_contours2(im_ms, nir, im_labels, im_ref_buffer):
   nir : np.ndarray
       Near-infrared image array.
   im_labels : np.ndarray
-      Image labels array.
+      Image mask array.
   im_ref_buffer : np.ndarray
-      Reference buffer mask.
+      buffer mask.
 
   Returns
   -------
@@ -578,14 +596,16 @@ def find_wl_contours2(im_ms, nir, im_labels, im_ref_buffer):
       - np.ndarray : Lens array.
   """
   np.seterr(all='ignore') # raise/ignore divisions by 0 and nans
-  # create array with same shape as im_ref_buffer with all zeros to use as cloud mask since we do not have one
-  cloud_mask = np.zeros_like(im_ref_buffer, dtype=bool)
+
+  # ensure labels and buffer are 0-1 by dividing by max value
+  im_labels = (im_labels / np.max(im_labels)).astype(bool)
+  im_ref_buffer = (im_ref_buffer / np.max(im_ref_buffer)).astype(bool)
 
   nrows = im_ref_buffer.shape[0]
   ncols = im_ref_buffer.shape[1]
 
   # calculate Normalized Difference Modified Water Index (NIR - G)
-  im_wi = ndwi(nir[:,:,0], im_ms[:,:,1], cloud_mask)
+  im_wi = ndwi(nir[:,:,0], im_ms[:,:,1])
 
   #export index
   lens = im_wi
@@ -595,8 +615,8 @@ def find_wl_contours2(im_ms, nir, im_labels, im_ref_buffer):
   vec_ind = im_ind.reshape(nrows*ncols,2)
 
   # reshape labels into vectors
-  vec_sand = im_labels[:,:,0].reshape(ncols*nrows)
-  vec_water = im_labels[:,:,1].reshape(ncols*nrows)
+  vec_sand = im_labels.reshape(ncols*nrows)
+  vec_water = ~im_labels.reshape(ncols*nrows)
 
   # create a buffer around the sandy beach
   vec_buffer = im_ref_buffer.reshape(nrows*ncols)
@@ -625,10 +645,10 @@ def find_wl_contours2(im_ms, nir, im_labels, im_ref_buffer):
 
 
   # remove contour points that are NaNs (around clouds)
-  contours_wi = self.process_contours(contours_wi)
+  contours_wi = process_contours(contours_wi)
 
   # only return MNDWI contours and threshold
-  return contours_wi, t_ave,lens
+  return contours_wi, t_wi,lens
 
 def ndwi(im1, im2):
   """Calculate the Normalized Difference Water Index (NDWI).
