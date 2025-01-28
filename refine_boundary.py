@@ -510,6 +510,9 @@ class boundary_refine:
       #perform kmeans clustering
       kmeans = KMeans(n_clusters=2, random_state=0).fit(seg_array)
       seg_array[:,2] = kmeans.predict(seg_array)
+      #the cluster labels are 0 or 1,make sure that the cluster with lower y values is 0
+      if np.mean(seg_array[seg_array[:,2] == 0,1]) > np.mean(seg_array[seg_array[:,2] == 1,1]):
+        seg_array[:,2] = np.where(seg_array[:,2] == 0,1,0)
 
       #get the point at the cluster boundary
       boundary_val = self.find_cluster_boundary(seg_array[:,0],seg_array[:,2],t_s)
@@ -518,6 +521,7 @@ class boundary_refine:
       boundary_pts.append(boundary_val)
 
     refined_boundary_pts = np.array(boundary_pts)
+
     return refined_boundary_pts,segmentation_transects
 
   def find_cluster_boundary(self, values,labels,pts):
