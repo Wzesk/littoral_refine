@@ -803,3 +803,57 @@ def false_color_index(ndwi_raster):
 
   false_color_img = np.stack((false_color_r,false_color_g,false_color_b), axis=-1)
   return false_color_img
+
+
+
+
+def refine_shorelines(shoreline_csv_paths,names, base_path, folder_path):
+  table_path= base_path + "/proj_track.csv"
+  df = pd.read_csv(table_path)
+  df['refined'] = False
+
+  for i in range(len(shoreline_csv_paths)):
+    print(names[i])
+    img = image_from_tar(base_path+"/upsampled.tar",names[i]+'_sr.png')
+    if len(img)> 0:#if there is an image with that name
+
+      #base the sampling on the image size
+      min_dim = min(img[0].size)
+      sample_size = max(int(min_dim/50),16)
+      nurbs_size = sample_size
+
+      #get the shoreline
+      shoreline = np.genfromtxt(folder_path + "/" + shoreline_csv_paths[i], delimiter=',')
+      flipped_shoreline = np.array([shoreline[:,1],shoreline[:,0]]).T
+
+      # get shoreline properties
+      area, perimeter = contour_properties(flipped_shoreline)
+      if area < (img[0].size[0] * img[0].size[1] / 20 ): # if the area is less than 5% of the image there must be a problem
+        print("contour has area less than 5%")
+        continue
+
+      if perimeter > ((img[0].size[0] + img[0].size[1]) * 3 ): # if the length is super long there must be a problem
+        print("contour is too long for the image")
+        continue
+
+      # generate sample points
+      smooth_shoreline = fit_nurbs(flipped_shoreline,size=nurbs_size,periodic=True)
+      curve_points, normals = get_normal_vector_along_nurbs(smooth_shoreline,0.005)
+      print(sample_size)
+      sample_pts = generate_sample_pts(curve_points,normals,sample_size)
+
+      #sample the original image
+      img_arr = np.array(img[0])
+      sampled_nir = sample_image(sample_pts,img_arr)
+
+      #derive transects
+      segmentation_transects,boundary_pts = cluster_transects_new(sampled_nir)
+      bd_arr = np.array(boundary_pts)
+
+      filename = folder_path + "/" + names[i] + "_rsl.csv"
+      save_points_as_csv(boundary_pts, filename)
+
+      df.loc[df['name'] == names[i], 'refined'] = True
+  df.to_csv(table_path, index=False)
+
+  return df

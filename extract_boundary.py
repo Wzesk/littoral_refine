@@ -4,6 +4,9 @@ from skimage import measure
 import skimage.morphology as morphology
 from simplification.cutil import simplify_coords
 
+from . import tario
+import pandas as pd
+
 
 def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
   """Extract the shoreline from a mask image.
@@ -92,3 +95,38 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
   
   #append the first point to the end of smooth shoreline
   return smoothed_shoreline,im_ref_buffer_out,shoreline_filepath
+
+
+
+
+def contours_from_tar(path):
+  table_path= path + "/proj_track.csv"
+  df = pd.read_csv(table_path)
+  df['contour'] = False
+
+  tar_path= path+"/mask.tar"
+
+  # get names where upsampled is true
+  names = df.loc[df['segmented'] == True]['name'].tolist()
+  # contours are in a folder, not a tar
+  contour_folder = path+"/countour"
+  if not os.path.exists(contour_folder):
+    os.makedirs(contour_folder)
+
+  for name in names:
+    mask_tar = tario.tar_io(upsample_tar_path)   
+    img = mask_tar.get_from_tar(name+'_sr.png')
+    mask_img = get_from_tar(tar_path, name+'_mask.png')
+
+    shoreline, buffer = get_shoreline(mask_img)
+
+    #flip shoreline axis
+    flipped_shoreline = np.array([shoreline[:,1],shoreline[:,0]]).T
+    shoreline_filename = f"{name}_sl.csv"
+    np.savetxt(contour_folder + "/" + shoreline_filename, flipped_shoreline, delimiter=",", fmt="%f")
+
+    df.loc[df['name'] == name, 'contour'] = True
+
+  df.to_csv(table_path, index=False)
+
+  return df
