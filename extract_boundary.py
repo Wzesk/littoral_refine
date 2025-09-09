@@ -1,5 +1,6 @@
 from PIL import Image,ImageEnhance
 import numpy as np
+import os
 from skimage import measure
 import skimage.morphology as morphology
 from simplification.cutil import simplify_coords
@@ -7,6 +8,43 @@ from simplification.cutil import simplify_coords
 from . import tario
 import pandas as pd
 
+def get_shorelines_from_folder(folder_path, simplification=1, smoothing=3, periodic=True):
+  """Extract shorelines from all mask images in a folder.
+
+  Parameters
+  ----------
+  folder_path : str
+      Path to the folder containing mask images.
+  simplification : float, optional
+      Simplification factor for the shoreline points, by default 1.
+  smoothing : int, optional
+      Smoothing window size for the shoreline points, by default 3.
+  periodic : bool, optional
+      Whether the shoreline is periodic (closed loop), by default True.
+
+  Returns
+  -------
+  list
+      List of tuples containing:
+      - np.ndarray : Smoothed shoreline points.
+      - np.ndarray : Buffer mask around the shoreline.
+      - str : Path to the saved shoreline CSV file.
+
+  Examples
+  --------
+  >>> shorelines = get_shorelines_from_folder('path/to/mask/folder', simplification=0.5, smoothing=2)
+  """
+  shorelines = []
+  
+  # List all PNG files in the folder
+  for filename in os.listdir(folder_path):
+    if filename.endswith('.png') and 'mask' in filename:
+      mask_img_path = os.path.join(folder_path, filename)
+      
+      shoreline, buffer, shoreline_filepath = get_shoreline(mask_img_path, simplification, smoothing, periodic)
+      shorelines.append(shoreline_filepath)
+  
+  return shorelines
 
 def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
   """Extract the shoreline from a mask image.
@@ -84,20 +122,21 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
   #switch the x and y coordinates
   smoothed_shoreline = np.array([smoothed_shoreline[:,1],smoothed_shoreline[:,0]]).T
 
-  #save the shoreline to a csv file
-  shoreline_filepath = mask_img_path.replace('.png','_sl.csv')
-  np.savetxt(shoreline_filepath, smoothed_shoreline, delimiter=",", fmt="%f")
-
-  # save the buffer
+  #create file paths
+  shoreline_filepath = mask_img_path.replace('MASK','SHORELINE')
+  shoreline_filepath = shoreline_filepath.replace('mask.png','sl.csv')
   buff_img = Image.fromarray(im_ref_buffer_out*255)
-  buffer_path = mask_img_path.replace('mask','buffer')
+  buffer_path = shoreline_filepath.replace('sl.csv','buffer.png')
+
+  #create directory if it does not exist
+  os.makedirs(os.path.dirname(shoreline_filepath), exist_ok=True)
+
+  #save the files
+  np.savetxt(shoreline_filepath, smoothed_shoreline, delimiter=",", fmt="%f")
   buff_img.save(buffer_path)
   
   #append the first point to the end of smooth shoreline
   return smoothed_shoreline,im_ref_buffer_out,shoreline_filepath
-
-
-
 
 def contours_from_tar(path):
   table_path= path + "/proj_track.csv"

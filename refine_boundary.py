@@ -1,7 +1,8 @@
 from sklearn.cluster import KMeans
 from skimage import measure
 import skimage.filters as filters
-
+import os
+import pandas as pd
 import math
 from geomdl import fitting
 import numpy as np
@@ -571,6 +572,7 @@ class boundary_refine:
   def save_refined_shoreline(self):
     """Save the refined shoreline to a CSV file."""
     self.refined_filepath = self.shoreline_path.replace('_sl','_rl')
+    print("Saving refined shoreline to: " + self.refined_filepath)
     np.savetxt(self.refined_filepath, self.refined_boundary, delimiter=",", fmt="%f")
 
 
@@ -807,53 +809,37 @@ def false_color_index(ndwi_raster):
 
 
 
-def refine_shorelines(shoreline_csv_paths,names, base_path, folder_path):
-  table_path= base_path + "/proj_track.csv"
+def refine_shorelines(base_path):
+  shoreline_folder = base_path + "/SHORELINE"
+  shoreline_paths = os.listdir(shoreline_folder)
+  shoreline_paths = [f for f in shoreline_paths if f.endswith('_sl.csv')]
+
+  up_folder = base_path + "/UP"
+  up_paths = os.listdir(up_folder)
+  up_paths = [f for f in up_paths if f.endswith('_up.png')]
+
+  #get names from df names column
+  table_path= base_path + "/processing.csv"
   df = pd.read_csv(table_path)
   df['refined'] = False
+  names = df['name'].values
 
-  for i in range(len(shoreline_csv_paths)):
+  for i in range(1):#len(names)):
     print(names[i])
-    img = image_from_tar(base_path+"/upsampled.tar",names[i]+'_sr.png')
-    if len(img)> 0:#if there is an image with that name
 
-      #base the sampling on the image size
-      min_dim = min(img[0].size)
-      sample_size = max(int(min_dim/50),16)
-      nurbs_size = sample_size
+    #get imager from up_paths with matching name
+    up_path = [f for f in up_paths if names[i] in f][0]
+    shoreline_path = [f for f in shoreline_paths if names[i] in f][0]
+    if len(up_path) == 0 or len(shoreline_path) == 0:
+      continue
 
-      #get the shoreline
-      shoreline = np.genfromtxt(folder_path + "/" + shoreline_csv_paths[i], delimiter=',')
-      flipped_shoreline = np.array([shoreline[:,1],shoreline[:,0]]).T
+    refiner = boundary_refine(shoreline_folder + "/" + shoreline_path, up_folder + "/" + up_path, periodic=True)
+    refiner.fit_nurbs()
+    nurbs_pts,normals = refiner.calc_normal_vector_along_nurbs()
+    nml_pts = refiner.generate_normal_sample_pts()
+    bnd = refiner.normal_thresholding()
 
-      # get shoreline properties
-      area, perimeter = contour_properties(flipped_shoreline)
-      if area < (img[0].size[0] * img[0].size[1] / 20 ): # if the area is less than 5% of the image there must be a problem
-        print("contour has area less than 5%")
-        continue
-
-      if perimeter > ((img[0].size[0] + img[0].size[1]) * 3 ): # if the length is super long there must be a problem
-        print("contour is too long for the image")
-        continue
-
-      # generate sample points
-      smooth_shoreline = fit_nurbs(flipped_shoreline,size=nurbs_size,periodic=True)
-      curve_points, normals = get_normal_vector_along_nurbs(smooth_shoreline,0.005)
-      print(sample_size)
-      sample_pts = generate_sample_pts(curve_points,normals,sample_size)
-
-      #sample the original image
-      img_arr = np.array(img[0])
-      sampled_nir = sample_image(sample_pts,img_arr)
-
-      #derive transects
-      segmentation_transects,boundary_pts = cluster_transects_new(sampled_nir)
-      bd_arr = np.array(boundary_pts)
-
-      filename = folder_path + "/" + names[i] + "_rsl.csv"
-      save_points_as_csv(boundary_pts, filename)
-
-      df.loc[df['name'] == names[i], 'refined'] = True
+    df.loc[df['name'] == names[i], 'refined'] = True
   df.to_csv(table_path, index=False)
 
-  return df
+  return table_path
