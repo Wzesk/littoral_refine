@@ -42,7 +42,8 @@ def get_shorelines_from_folder(folder_path, simplification=1, smoothing=3, perio
       mask_img_path = os.path.join(folder_path, filename)
       
       shoreline, buffer, shoreline_filepath = get_shoreline(mask_img_path, simplification, smoothing, periodic)
-      shorelines.append(shoreline_filepath)
+      if shoreline is not None:
+        shorelines.append(shoreline_filepath)
   
   return shorelines
 
@@ -88,6 +89,10 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
 
   # Find contours (boundaries) in the mask
   contours = measure.find_contours(mask_array, 0.5)
+
+  # If there are no countours return None and continue
+  if len(contours) < 1:
+    return None, None, None
 
   # Assuming you want the longest contour (outer boundary)
   longest_contour = max(contours, key=len)

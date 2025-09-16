@@ -10,6 +10,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 from aquarel import load_theme
+from . import boundary_filter
 
 
 
@@ -806,15 +807,12 @@ def false_color_index(ndwi_raster):
   false_color_img = np.stack((false_color_r,false_color_g,false_color_b), axis=-1)
   return false_color_img
 
-
-
-
 def refine_shorelines(base_path):
   shoreline_folder = base_path + "/SHORELINE"
   shoreline_paths = os.listdir(shoreline_folder)
   shoreline_paths = [f for f in shoreline_paths if f.endswith('_sl.csv')]
-
-  up_folder = base_path + "/UP"
+  
+  up_folder = base_path + "/Normalized" # up_folder = base_path + "/UP"
   up_paths = os.listdir(up_folder)
   up_paths = [f for f in up_paths if f.endswith('_up.png')]
 
@@ -824,14 +822,41 @@ def refine_shorelines(base_path):
   df['refined'] = False
   names = df['name'].values
 
-  for i in range(1):#len(names)):
+  # filter out bad shorelines using boundary_filter
+  good_files, bad_files, rejection_reasons = boundary_filter.filter_shorelines(
+      csv_files=shoreline_paths,
+      shoreline_path=shoreline_folder,
+      iqr_multiplier=2.0,           # Adjust for stricter/looser filtering
+      location_eps=1.5,             # Adjust for location clustering sensitivity  
+      enable_shape_filter=True,     # Enable/disable shape similarity filter
+      shape_similarity_threshold=0.3, # Adjust shape similarity strictness
+      verbose=True                  # Print progress information
+  )
+
+  # add the rejection reasons to the df
+  df['rejection_reason'] = ''
+  for i in range(len(df)):
+    name = df.loc[i, 'name']
+    if name in rejection_reasons:
+      df.loc[i, 'rejection_reason'] = rejection_reasons[name]
+
+  # filter names to only those in good_files
+  good_names = [os.path.basename(f).replace('_nir_sl.csv','') for f in good_files]
+  names = [n for n in names if n in good_names] 
+  shoreline_paths = good_files
+
+
+  print(f"Refining {len(names)} shorelines...")
+  for i in range(len(names)):
     print(names[i])
 
-    #get imager from up_paths with matching name
-    up_path = [f for f in up_paths if names[i] in f][0]
-    shoreline_path = [f for f in shoreline_paths if names[i] in f][0]
-    if len(up_path) == 0 or len(shoreline_path) == 0:
+    #get image from up_paths with matching name
+    up_path_list = [f for f in up_paths if names[i] in f]
+    shoreline_path_list = [f for f in shoreline_paths if names[i] in f]
+    if not up_path_list or not shoreline_path_list:
       continue
+    up_path = up_path_list[0]
+    shoreline_path = shoreline_path_list[0]
 
     refiner = boundary_refine(shoreline_folder + "/" + shoreline_path, up_folder + "/" + up_path, periodic=True)
     refiner.fit_nurbs()
