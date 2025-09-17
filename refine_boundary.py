@@ -812,7 +812,7 @@ def refine_shorelines(base_path):
   shoreline_paths = os.listdir(shoreline_folder)
   shoreline_paths = [f for f in shoreline_paths if f.endswith('_sl.csv')]
   
-  up_folder = base_path + "/Normalized" # up_folder = base_path + "/UP"
+  up_folder = base_path + "/NORMALIZED" # up_folder = base_path + "/UP"
   up_paths = os.listdir(up_folder)
   up_paths = [f for f in up_paths if f.endswith('_up.png')]
 
@@ -822,16 +822,23 @@ def refine_shorelines(base_path):
   df['refined'] = False
   names = df['name'].values
 
-  # filter out bad shorelines using boundary_filter
-  good_files, bad_files, rejection_reasons = boundary_filter.filter_shorelines(
-      csv_files=shoreline_paths,
-      shoreline_path=shoreline_folder,
-      iqr_multiplier=2.0,           # Adjust for stricter/looser filtering
-      location_eps=1.5,             # Adjust for location clustering sensitivity  
-      enable_shape_filter=True,     # Enable/disable shape similarity filter
-      shape_similarity_threshold=0.3, # Adjust shape similarity strictness
-      verbose=True                  # Print progress information
-  )
+  # if the total number of files is less than 50, skip filtering
+  if len(shoreline_paths) < 50:
+    print(f"Skipping filtering, only {len(shoreline_paths)} shorelines found.")
+    good_files = shoreline_paths
+    bad_files = []
+    rejection_reasons = {}
+  else:
+    print(f"Filtering {len(shoreline_paths)} shorelines...")
+    good_files, bad_files, rejection_reasons = boundary_filter.filter_shorelines(
+        csv_files=shoreline_paths,
+        shoreline_path=shoreline_folder,
+        iqr_multiplier=2.0,           # Adjust for stricter/looser filtering
+        location_eps=1.5,             # Adjust for location clustering sensitivity  
+        enable_shape_filter=True,     # Enable/disable shape similarity filter
+        shape_similarity_threshold=0.3, # Adjust shape similarity strictness
+        verbose=True                  # Print progress information
+    )
 
   # add the rejection reasons to the df
   df['rejection_reason'] = ''
