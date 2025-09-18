@@ -2,6 +2,7 @@ from sklearn.cluster import KMeans
 from skimage import measure
 import skimage.filters as filters
 import os
+import glob
 import pandas as pd
 import math
 from geomdl import fitting
@@ -816,8 +817,17 @@ def refine_shorelines(base_path):
   up_paths = os.listdir(up_folder)
   up_paths = [f for f in up_paths if f.endswith('_up.png')]
 
+  #find the most *_processing.csv file path in the base_path
+  processing_files = glob.glob(os.path.join(base_path, "*_processing.csv"))
+  if processing_files:
+      latest_processing_file = max(processing_files, key=os.path.getctime)
+      print(f"Found latest processing file: {latest_processing_file}")
+  else:
+      print("No processing file found.")
+      return None
   #get names from df names column
-  table_path= base_path + "/processing.csv"
+  table_path = latest_processing_file
+
   df = pd.read_csv(table_path)
   df['refined'] = False
   names = df['name'].values
