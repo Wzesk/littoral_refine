@@ -9,8 +9,18 @@ from geomdl import fitting
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
+import matplotlib
+import warnings
 
-from aquarel import load_theme
+# Configure matplotlib to suppress font warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib.font_manager')
+warnings.filterwarnings('ignore', message='.*findfont.*')
+
+# Set matplotlib to use any available font without searching
+matplotlib.rcParams['font.family'] = ['DejaVu Sans', 'Liberation Sans', 'sans-serif']
+matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial', 'Helvetica']
+plt.rcParams['axes.unicode_minus'] = False
+
 from . import boundary_filter
 
 
@@ -160,20 +170,47 @@ class boundary_refine:
     geomdl.NURBS.Curve
         Fitted NURBS curve.
     """
-    shoreline = self.shoreline
+    shoreline = self.shoreline.copy()
 
     #if periodic, set the last point equal to the first point
     if self.periodic:
         shoreline[len(shoreline)-1] = shoreline[0]
 
+    # check for adjacent duplicate points
+    diff = np.diff(shoreline, axis=0)
+    duplicate_indices = np.where((diff == 0).all(axis=1))[0] + 1
+    if len(duplicate_indices) > 0:
+        shoreline = np.delete(shoreline, duplicate_indices, axis=0)
+        print(f"Removed {len(duplicate_indices)} duplicate points from shoreline for NURBS fitting.")
+
     #convert shoreline into a list of tuples
     pline = [tuple(x) for x in shoreline]
 
+    # Adjust control point count to prevent self-overlap
+    # For periodic curves, use a higher ratio of control points to data points
+    min_control_pts = max(6, degree + 1)  # Minimum control points for given degree
+    max_control_pts = min(size, len(pline) - 1)  # Don't exceed data points
+    
+    # For periodic curves, use more control points to reduce self-overlap
+    if self.periodic:
+        adjusted_size = max(min_control_pts, min(max_control_pts, len(pline) // 3))
+    else:
+        adjusted_size = max(min_control_pts, max_control_pts)
+
     try:
-      self.nurbs = fitting.approximate_curve(pline, degree, ctrlpts_size=size, centripetal=False)
+      # Use centripetal parameterization for better curve shape
+      self.nurbs = fitting.approximate_curve(pline, degree, ctrlpts_size=adjusted_size, centripetal=True)
     except Exception as e:
-      print(str(e))
-      self.nurbs = fitting.interpolate_curve(pline, 1)
+      print(f"NURBS approximation failed: {str(e)}")
+      try:
+        # Fallback: try with fewer control points
+        fallback_size = max(min_control_pts, adjusted_size // 2)
+        print(f"Retrying with {fallback_size} control points...")
+        self.nurbs = fitting.approximate_curve(pline, degree, ctrlpts_size=fallback_size, centripetal=True)
+      except Exception as e2:
+        print(f"Fallback approximation failed: {str(e2)}")
+        # Final fallback: simple interpolation with degree 1
+        self.nurbs = fitting.interpolate_curve(pline, 1)
 
     return self.nurbs
   
@@ -272,21 +309,165 @@ class boundary_refine:
     curve_points = self.crv_pts
     count = self.sample_size
     normals = self.normals
+    
+    # Get image dimensions for bounds checking
+    img_width, img_height = self.img.size  # PIL image size is (width, height)
   
     for i in range(len(curve_points)):
+      # Calculate initial sample point
       sample_pt = curve_points[i] + normals[i]*(-count/2)
       t_samples = []
-      t_samples.append(sample_pt)
+      
+      # Check if vector intersects again with the curve
+      max_distance = count  # Maximum sampling distance from curve point
+      intersection_distance = self._find_shoreline_intersection(curve_points[i], normals[i], max_distance, nurbs_point_index=i)
+      
+      if intersection_distance is not None:
+        # Clip the sampling range to stop before the intersection
+        # But ensure minimum sample size for meaningful analysis
+        min_sample_size = max(4, count // 3)  # Minimum 4 samples, or 1/3 of original
+        clipped_count = int(intersection_distance * 0.8)  # Stop at 80% of intersection distance
+        effective_count = max(min_sample_size, min(count, clipped_count))
+        
+        # If intersection is very close, use larger safety margin
+        if intersection_distance < count * 0.3:
+            effective_count = max(min_sample_size, min(count, int(intersection_distance * 0.6)))
+      else:
+        effective_count = count
 
-      for j in range((count*2)-1):
-        sample_pt = sample_pt + (normals[i]/2)
-        t_samples.append(sample_pt)
+      # Generate sample points along the normal vector
+      for j in range(effective_count*2):
+        current_pt = curve_points[i] + normals[i]*(-effective_count/2 + j/2)
+        
+        # Clip sample point to image bounds
+        clipped_x = max(0, min(img_width - 1, current_pt[0]))
+        clipped_y = max(0, min(img_height - 1, current_pt[1]))
+        clipped_pt = np.array([clipped_x, clipped_y])
+        
+        t_samples.append(clipped_pt)
 
       sample_pts.append(t_samples)
 
     self.sample_pts = sample_pts
 
     return sample_pts
+
+  def _find_shoreline_intersection(self, start_point, direction, max_distance, nurbs_point_index=None, min_distance=0.5):
+    """
+    Find the closest intersection between a normal vector and the fitted NURBS curve.
+    
+    Parameters
+    ----------
+    start_point : np.ndarray
+        Starting point of the normal vector (point on NURBS curve)
+    direction : np.ndarray  
+        Direction vector of the normal
+    max_distance : float
+        Maximum distance to check for intersections
+    nurbs_point_index : int, optional
+        Index of the NURBS curve point (used for excluding nearby segments)
+    min_distance : float
+        Minimum distance from start_point to consider valid intersections
+        
+    Returns
+    -------
+    float or None
+        Distance to closest intersection, or None if no intersection found
+    """
+    # Create the normal line endpoints
+    end_point_pos = start_point + direction * max_distance
+    end_point_neg = start_point - direction * max_distance
+    
+    closest_intersection_dist = None
+    
+    # Use the fitted NURBS curve points instead of original shoreline
+    nurbs_curve = self.crv_pts
+    
+    # Calculate which NURBS curve segments to exclude based on the originating point
+    excluded_segments = set()
+    if nurbs_point_index is not None:
+        # Exclude the exact segment containing the starting point to avoid the trivial intersection
+        # Also exclude immediate neighbors to handle curve smoothness
+        total_nurbs_segments = len(nurbs_curve) - 1
+        if total_nurbs_segments > 0:
+            # Exclude the originating segment and immediate neighbors
+            for offset in [-1, 0, 1]:
+                seg_idx = (nurbs_point_index + offset) % total_nurbs_segments
+                excluded_segments.add(seg_idx)
+    
+    # Check intersection with each NURBS curve segment
+    for j in range(len(nurbs_curve) - 1):
+        # Skip segments that are too close to the originating point
+        if j in excluded_segments:
+            continue
+            
+        seg_start = nurbs_curve[j]
+        seg_end = nurbs_curve[j + 1]
+        
+        # Check intersection with positive direction
+        intersection_pos = self._line_segment_intersection(
+            start_point, end_point_pos, seg_start, seg_end
+        )
+        
+        if intersection_pos is not None:
+            dist = np.linalg.norm(intersection_pos - start_point)
+            if dist > min_distance:  # Ignore intersections too close to starting point
+                if closest_intersection_dist is None or dist < closest_intersection_dist:
+                    closest_intersection_dist = dist
+        
+        # Check intersection with negative direction
+        intersection_neg = self._line_segment_intersection(
+            start_point, end_point_neg, seg_start, seg_end
+        )
+        
+        if intersection_neg is not None:
+            dist = np.linalg.norm(intersection_neg - start_point)
+            if dist > min_distance:  # Ignore intersections too close to starting point
+                if closest_intersection_dist is None or dist < closest_intersection_dist:
+                    closest_intersection_dist = dist
+    
+    return closest_intersection_dist
+
+  def _line_segment_intersection(self, p1, p2, p3, p4):
+    """
+    Find intersection point between two line segments.
+    
+    Parameters
+    ----------
+    p1, p2 : np.ndarray
+        Endpoints of first line segment
+    p3, p4 : np.ndarray  
+        Endpoints of second line segment
+        
+    Returns
+    -------
+    np.ndarray or None
+        Intersection point, or None if no intersection
+    """
+    x1, y1 = p1[0], p1[1]
+    x2, y2 = p2[0], p2[1]
+    x3, y3 = p3[0], p3[1]
+    x4, y4 = p4[0], p4[1]
+    
+    # Calculate denominators
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    
+    # Lines are parallel
+    if abs(denom) < 1e-10:
+        return None
+    
+    # Calculate parameters
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+    u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+    
+    # Check if intersection is within both line segments
+    if 0 <= t <= 1 and 0 <= u <= 1:
+        # Calculate intersection point
+        intersect_x = x1 + t * (x2 - x1)
+        intersect_y = y1 + t * (y2 - y1)
+        return np.array([intersect_x, intersect_y])
+    
+    return None
 
   def sample_image(self, sample_pts, scale_down=1):
     """Sample the image at the given sample points.
@@ -305,21 +486,32 @@ class boundary_refine:
     """
     image_array = np.array(self.img)
     sampled_pts = []
+    out_of_bounds_count = 0
 
     for t_pts in sample_pts:
       t_samples = []
       for pt in t_pts:
         try:
-          if int(pt[0]/scale_down) < image_array.shape[1] and int(pt[1]/scale_down) < image_array.shape[0]:
-            t_samples.append([pt[0],pt[1],image_array[int(pt[1]/scale_down),int(pt[0]/scale_down)]])
+          # Apply scale_down and ensure we're within bounds
+          x_idx = int(pt[0]/scale_down)
+          y_idx = int(pt[1]/scale_down)
+          
+          if 0 <= x_idx < image_array.shape[1] and 0 <= y_idx < image_array.shape[0]:
+            t_samples.append([pt[0],pt[1],image_array[y_idx, x_idx]])
           else:
-            print("sample out of bounds")
+            # This should be rare now due to clipping in generate_normal_sample_pts
+            out_of_bounds_count += 1
             min_pixel = np.min(image_array.reshape(image_array.shape[0]*image_array.shape[1],image_array.shape[2]),axis=0)
             t_samples.append([pt[0],pt[1],min_pixel])
         except Exception as e:
-          print(str(e))
+          out_of_bounds_count += 1
           t_samples.append([pt[0],pt[1],np.average(image_array)])
       sampled_pts.append(t_samples)
+    
+    # Only print summary if there were out-of-bounds samples
+    if out_of_bounds_count > 0:
+      print(f"Warning: {out_of_bounds_count} sample points were out of bounds and substituted")
+    
     self.sample_values = sampled_pts
     return sampled_pts
 
@@ -358,7 +550,15 @@ class boundary_refine:
         
       segmentation_transects.append(seg_array)
 
-      seg_slopes[s] = self.find_highest_derivatives(seg_array)
+      derivatives = self.find_highest_derivatives(seg_array)
+      # Handle case where fewer than expected derivatives are returned
+      if len(derivatives) < top:
+          # Pad with zeros if necessary
+          padded_derivatives = np.zeros((top, 3))
+          padded_derivatives[:len(derivatives)] = derivatives
+          seg_slopes[s] = padded_derivatives
+      else:
+          seg_slopes[s] = derivatives[:top]
 
     refined_boundary_pts = np.array(self.rolling_highest_slope(seg_slopes, sampled))
 
@@ -374,53 +574,50 @@ class boundary_refine:
     draw_sampling : bool, optional
         Whether to draw the sampled NIR values, by default False.
     """
+    plt.axis('equal')
+    plt.gca().invert_yaxis()
 
-    with load_theme("gruvbox_dark"):
-      plt.axis('equal')
-      plt.gca().invert_yaxis()
+    self.sample_image
+    if draw_image:
+        img_arr = np.array(self.img)
+        plt.imshow(img_arr) 
 
-      self.sample_image
-      if draw_image:
-          img_arr = np.array(self.img)
-          plt.imshow(img_arr) 
+    if draw_sampling:
+        sampled_nir = self.sample_values
+        for t_s in sampled_nir:
+            for pt in t_s:
+                pixel = np.array([pt[2][0]/255,pt[2][1]/255,pt[2][2]/255])
+                plt.plot(pt[0], pt[1], '.',ms=5,color=pixel)
 
-      if draw_sampling:
-          sampled_nir = self.sample_values
-          for t_s in sampled_nir:
-              for pt in t_s:
-                  pixel = np.array([pt[2][0]/255,pt[2][1]/255,pt[2][2]/255])
-                  plt.plot(pt[0], pt[1], '.',ms=5,color=pixel)
-
-      plt.plot(self.shoreline[:,0],self.shoreline[:,1],color='blue')
-      plt.plot(self.refined_boundary[:,0],self.refined_boundary[:,1],color='red')
-
-      plt.show()
+    plt.plot(self.shoreline[:,0],self.shoreline[:,1],color='blue')
+    plt.plot(self.refined_boundary[:,0],self.refined_boundary[:,1],color='red')
+    # make the background light blue
+    plt.gca().set_facecolor((0.8, 0.9, 1.0))
+    plt.show()
 
   def visualize_clusters(self, bounds=slice(None,None)):    
     """
     Visualize the clustering results
     """
     if self.clustered_samples is not None:
-      with load_theme("gruvbox_dark"):
-        plt.axis('equal')
-      
-        for test_pts in self.clustered_samples:
-          plt.scatter(test_pts[:,0], test_pts[:,1], c=test_pts[:,2])
-        plt.show()
+      plt.axis('equal')
+    
+      for test_pts in self.clustered_samples:
+        plt.scatter(test_pts[:,0], test_pts[:,1], c=test_pts[:,2])
+      plt.show()
 
   def visualize_max_slopes(self,bounds=slice(None,None)):  
     """
     Visualize location of shoreline derivative
     """
     if self.clustered_samples is not None:
-      with load_theme("gruvbox_dark"):
-        plt.axis('equal')
+      plt.axis('equal')
 
-        for test_pts in self.clustered_samples:
-          dirs = self.find_highest_derivatives(test_pts)
-          plt.scatter(test_pts[:,0], test_pts[:,1], c='grey')
-          plt.scatter(dirs[:,1],dirs[:,2],c='red')
-        plt.show()
+      for test_pts in self.clustered_samples:
+        dirs = self.find_highest_derivatives(test_pts)
+        plt.scatter(test_pts[:,0], test_pts[:,1], c='grey')
+        plt.scatter(dirs[:,1],dirs[:,2],c='red')
+      plt.show()
 
   def rolling_highest_slope(self, seg_slopes, segmentation_transects,wz=3):
     """Calculate the rolling highest slope for segmentation.
@@ -469,21 +666,37 @@ class boundary_refine:
     np.ndarray
         Array of top derivatives.
     """
+    # Handle edge case where there are too few points
+    if len(points) < 2:
+        # Return a single point with zero derivative if insufficient points
+        return np.array([[0.0, points[0][0], points[0][1]]] * min(top, 1))
+    
     derivatives = np.zeros(points.shape)
 
     for i in range(len(points)-1):
-      #get slope of segment between point and subsquent point
-      derivatives[i,0] = (points[i+1][1]-points[i][1])/(points[i+1][0]-points[i][0])
+      # Avoid division by zero
+      dx = points[i+1][0] - points[i][0]
+      if abs(dx) < 1e-10:
+          derivatives[i,0] = 0.0
+      else:
+          derivatives[i,0] = (points[i+1][1]-points[i][1])/dx
       derivatives[i,1] = (points[i,0]+points[i+1,0])/2
       derivatives[i,2] = (points[i,1]+points[i+1,1])/2
 
     #sort derivatives in descending order using first column
     derivatives = derivatives[derivatives[:,0].argsort()]
-    #reverse the sorted order
-    if (points[0][1]+points[1][1]+points[2][1]) < (points[-1][1]+points[-2][1]+points[-3][1]):
-      derivatives = derivatives[::-1]
+    
+    #reverse the sorted order - but only if we have enough points
+    if len(points) >= 3:
+        if (points[0][1]+points[1][1]+points[2][1]) < (points[-1][1]+points[-2][1]+points[-3][1]):
+            derivatives = derivatives[::-1]
+    elif len(points) == 2:
+        # For 2 points, use simpler comparison
+        if points[0][1] < points[-1][1]:
+            derivatives = derivatives[::-1]
 
-    return derivatives[:top]
+    # Return the top derivatives, but don't exceed the number of actual derivatives
+    return derivatives[:min(top, len(points)-1)]
 
   def cluster_transects(self, sampled):
     """Cluster transects using KMeans clustering.
@@ -880,6 +1093,15 @@ def refine_shorelines(base_path):
     nurbs_pts,normals = refiner.calc_normal_vector_along_nurbs()
     nml_pts = refiner.generate_normal_sample_pts()
     bnd = refiner.normal_thresholding()
+
+    # check the results of the thresholding for self intersections.  If ther are are any, try kmeans thresholding
+    if boundary_filter.check_self_intersection(bnd):
+      print("Self intersection detected, trying kmeans thresholding...")
+      bnd = refiner.kmeans_thresholding()
+      if boundary_filter.check_self_intersection(bnd):
+        # remove the self intersection
+        print("unavoidable self-intersection detected, removing intersections...")
+        bnd = boundary_filter.remove_self_intersections(bnd)
 
     df.loc[df['name'] == names[i], 'refined'] = True
   df.to_csv(table_path, index=False)

@@ -78,6 +78,144 @@ def calculate_shape_compactness(length: float, area: float) -> float:
     return float((4 * np.pi * area) / (length ** 2))
 
 
+def check_self_intersection(boundary_points: np.ndarray) -> bool:
+    """
+    Check if a boundary (shoreline) has self-intersections.
+    
+    Args:
+        boundary_points: Array of boundary coordinates (N x 2)
+        
+    Returns:
+        bool: True if self-intersections exist, False otherwise
+    """
+    if boundary_points is None or len(boundary_points) < 3:
+        return False
+        
+    try:
+        # Handle both string paths and numpy arrays
+        if isinstance(boundary_points, str):
+            coords = np.genfromtxt(boundary_points, delimiter=',')
+        else:
+            coords = np.array(boundary_points)
+            
+        if coords.ndim != 2 or coords.shape[1] != 2:
+            return True  # Invalid format
+            
+        x, y = coords[:, 0], coords[:, 1]
+        return is_self_intersecting(x, y)
+    except Exception:
+        return True
+
+
+def remove_self_intersections(boundary_points: np.ndarray, 
+                             max_iterations: int = 10,
+                             tolerance: float = 1e-6) -> np.ndarray:
+    """
+    Remove self-intersections from a boundary by simplifying the geometry.
+    
+    This function uses multiple strategies to clean up self-intersecting boundaries:
+    1. First attempts to fix with Shapely's buffer(0) operation
+    2. Falls back to Douglas-Peucker simplification with increasing tolerance
+    3. As a last resort, removes duplicate/very close points
+    
+    Args:
+        boundary_points: Array of boundary coordinates (N x 2) 
+        max_iterations: Maximum number of simplification attempts
+        tolerance: Initial tolerance for simplification
+        
+    Returns:
+        np.ndarray: Cleaned boundary coordinates without self-intersections
+    """
+    if boundary_points is None or len(boundary_points) < 3:
+        return boundary_points
+        
+    try:
+        # Handle both string paths and numpy arrays
+        if isinstance(boundary_points, str):
+            coords = np.genfromtxt(boundary_points, delimiter=',')
+        else:
+            coords = np.array(boundary_points)
+            
+        if coords.ndim != 2 or coords.shape[1] != 2:
+            return coords
+            
+        # Check if already clean
+        line = LineString(coords)
+        if line.is_simple:
+            return coords
+            
+        # Strategy 1: Try buffer(0) operation to fix topology
+        try:
+            # For closed polygons, try polygon approach
+            if np.allclose(coords[0], coords[-1], atol=1e-8):
+                poly = Polygon(coords[:-1])  # Remove duplicate last point
+                if poly.is_valid:
+                    fixed_poly = poly.buffer(0)
+                    if hasattr(fixed_poly, 'exterior') and fixed_poly.exterior is not None:
+                        fixed_coords = np.array(fixed_poly.exterior.coords)
+                        # Ensure closure
+                        if not np.allclose(fixed_coords[0], fixed_coords[-1], atol=1e-8):
+                            fixed_coords = np.vstack([fixed_coords, fixed_coords[0:1]])
+                        return fixed_coords
+            else:
+                # For open lines, try line approach
+                fixed_line = line.buffer(0).boundary
+                if hasattr(fixed_line, 'coords'):
+                    return np.array(list(fixed_line.coords))
+        except Exception:
+            pass
+            
+        # Strategy 2: Douglas-Peucker simplification with increasing tolerance
+        current_tolerance = tolerance
+        for iteration in range(max_iterations):
+            try:
+                simplified = line.simplify(current_tolerance, preserve_topology=True)
+                if simplified.is_simple and len(simplified.coords) >= 3:
+                    result = np.array(list(simplified.coords))
+                    
+                    # For closed boundaries, ensure closure
+                    if (np.allclose(coords[0], coords[-1], atol=1e-8) and 
+                        not np.allclose(result[0], result[-1], atol=1e-8)):
+                        result = np.vstack([result, result[0:1]])
+                    
+                    return result
+                    
+                current_tolerance *= 2  # Increase tolerance for next iteration
+                
+            except Exception:
+                current_tolerance *= 2
+                continue
+                
+        # Strategy 3: Manual cleanup - remove very close points
+        cleaned_coords = [coords[0]]
+        min_distance = np.percentile(np.linalg.norm(np.diff(coords, axis=0), axis=1), 10)
+        min_distance = max(min_distance, tolerance * 10)
+        
+        for i in range(1, len(coords)):
+            distance = np.linalg.norm(coords[i] - cleaned_coords[-1])
+            if distance > min_distance:
+                cleaned_coords.append(coords[i])
+                
+        cleaned_coords = np.array(cleaned_coords)
+        
+        # Ensure minimum number of points
+        if len(cleaned_coords) < 3:
+            # If too few points remain, sample from original
+            step = max(1, len(coords) // 10)
+            cleaned_coords = coords[::step]
+            
+        # For closed boundaries, ensure closure
+        if (np.allclose(coords[0], coords[-1], atol=1e-8) and 
+            not np.allclose(cleaned_coords[0], cleaned_coords[-1], atol=1e-8)):
+            cleaned_coords = np.vstack([cleaned_coords, cleaned_coords[0:1]])
+            
+        return cleaned_coords
+        
+    except Exception as e:
+        print(f"Warning: Could not remove self-intersections: {e}")
+        return boundary_points
+
+
 def load_shoreline_metrics(csv_files: List[str], shoreline_path: str, 
                           min_points: int = 3) -> Tuple[List[ShorelineMetrics], Dict[str, List[str]]]:
     """
