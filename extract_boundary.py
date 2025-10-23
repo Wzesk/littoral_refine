@@ -35,16 +35,16 @@ def get_shorelines_from_folder(folder_path, simplification=1, smoothing=3, perio
   >>> shorelines = get_shorelines_from_folder('path/to/mask/folder', simplification=0.5, smoothing=2)
   """
   shorelines = []
-  
+
   # List all PNG files in the folder
   for filename in os.listdir(folder_path):
     if filename.endswith('.png') and 'mask' in filename:
       mask_img_path = os.path.join(folder_path, filename)
-      
+
       shoreline, buffer, shoreline_filepath = get_shoreline(mask_img_path, simplification, smoothing, periodic)
       if shoreline is not None:
         shorelines.append(shoreline_filepath)
-  
+
   return shorelines
 
 def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
@@ -123,8 +123,10 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
 
     # Append the first point to the end of the smoothed shoreline to close the loop
     smoothed_shoreline = np.vstack((smoothed_shoreline,smoothed_shoreline[0,:]))
-  
-  #switch the x and y coordinates
+
+  #switch the x and y coordinates to match expected format for geotransform
+  # Note: Image coordinates are (row, col) but we need (x, y) which is (col, row)
+  # This accounts for the coordinate system difference between image and geographic coordinates
   smoothed_shoreline = np.array([smoothed_shoreline[:,1],smoothed_shoreline[:,0]]).T
 
   #create file paths
@@ -139,7 +141,7 @@ def get_shoreline(mask_img_path, simplification=1, smoothing=3,periodic=True):
   #save the files
   np.savetxt(shoreline_filepath, smoothed_shoreline, delimiter=",", fmt="%f")
   buff_img.save(buffer_path)
-  
+
   #append the first point to the end of smooth shoreline
   return smoothed_shoreline,im_ref_buffer_out,shoreline_filepath
 
@@ -158,16 +160,17 @@ def contours_from_tar(path):
     os.makedirs(contour_folder)
 
   for name in names:
-    mask_tar = tario.tar_io(upsample_tar_path)   
+    mask_tar = tario.tar_io(upsample_tar_path)
     img = mask_tar.get_from_tar(name+'_sr.png')
     mask_img = get_from_tar(tar_path, name+'_mask.png')
 
     shoreline, buffer = get_shoreline(mask_img)
 
-    #flip shoreline axis
-    flipped_shoreline = np.array([shoreline[:,1],shoreline[:,0]]).T
+    # #flip shoreline axis
+    # flipped_shoreline = np.array([shoreline[:,1],shoreline[:,0]]).T
+
     shoreline_filename = f"{name}_sl.csv"
-    np.savetxt(contour_folder + "/" + shoreline_filename, flipped_shoreline, delimiter=",", fmt="%f")
+    np.savetxt(contour_folder + "/" + shoreline_filename, shoreline, delimiter=",", fmt="%f")
 
     df.loc[df['name'] == name, 'contour'] = True
 
