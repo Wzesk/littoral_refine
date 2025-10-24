@@ -1028,7 +1028,17 @@ def refine_shorelines(base_path):
   
   up_folder = base_path + "/NORMALIZED" # up_folder = base_path + "/UP"
   up_paths = os.listdir(up_folder)
-  up_paths = [f for f in up_paths if f.endswith('_up.png')]
+  # Check for both naming patterns: _up.png (newer) and _x4.png (older)
+  up_paths_up = [f for f in up_paths if f.endswith('_up.png')]
+  up_paths_x4 = [f for f in up_paths if f.endswith('_x4.png')]
+  
+  # Use whichever pattern has more files
+  if len(up_paths_x4) > len(up_paths_up):
+    up_paths = up_paths_x4
+    print(f"Using _x4.png naming pattern: {len(up_paths_x4)} files found")
+  else:
+    up_paths = up_paths_up
+    print(f"Using _up.png naming pattern: {len(up_paths_up)} files found")
 
   #find the most *_processing.csv file path in the base_path
   processing_files = glob.glob(os.path.join(base_path, "*_processing.csv"))
